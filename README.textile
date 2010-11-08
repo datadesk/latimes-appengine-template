@@ -1,0 +1,3 @@
+h1. django-appengine-template
+
+A basic Django + AppEngine template I use to start new AppEngine projects.
