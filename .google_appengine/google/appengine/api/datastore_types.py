@@ -58,9 +58,13 @@ _MAX_LINK_PROPERTY_LENGTH = 2083
 RESERVED_PROPERTY_NAME = re.compile('^__.*__$')
 
 _KEY_SPECIAL_PROPERTY = '__key__'
-_SPECIAL_PROPERTIES = frozenset([_KEY_SPECIAL_PROPERTY])
+_UNAPPLIED_LOG_TIMESTAMP_SPECIAL_PROPERTY = '__unapplied_log_timestamp_us__'
+_SPECIAL_PROPERTIES = frozenset(
+    [_KEY_SPECIAL_PROPERTY, _UNAPPLIED_LOG_TIMESTAMP_SPECIAL_PROPERTY])
 
-_NAMESPACE_SEPARATOR='!'
+_NAMESPACE_SEPARATOR = '!'
+
+_EMPTY_NAMESPACE_ID = 1
 
 class UtcTzinfo(datetime.tzinfo):
   def utcoffset(self, dt): return datetime.timedelta(0)
@@ -186,12 +190,39 @@ def ResolveNamespace(namespace):
 def EncodeAppIdNamespace(app_id, namespace):
   """Concatenates app id and namespace into a single string.
 
-     This method is needed for xml and datastore_file_stub.
+  This method is needed for xml and datastore_file_stub.
+
+  Args:
+    app_id: The application id to encode
+    namespace: The namespace to encode
+
+  Returns:
+    The string encoding for the app_id, namespace pair.
   """
   if not namespace:
     return app_id
   else:
     return app_id + _NAMESPACE_SEPARATOR + namespace
+
+
+def DecodeAppIdNamespace(app_namespace_str):
+  """Decodes app_namespace_str into an (app_id, namespace) pair.
+
+  This method is the reverse of EncodeAppIdNamespace and is needed for
+  datastore_file_stub.
+
+  Args:
+    app_namespace_str: An encoded app_id, namespace pair created by
+      EncodeAppIdNamespace
+
+  Returns:
+    (app_id, namespace) pair encoded in app_namespace_str
+  """
+  sep = app_namespace_str.find(_NAMESPACE_SEPARATOR)
+  if sep < 0:
+    return (app_namespace_str, '')
+  else:
+    return (app_namespace_str[0:sep], app_namespace_str[sep + 1:])
 
 
 def SetNamespace(proto, namespace):
@@ -648,7 +679,7 @@ class Category(unicode):
   TERM = 'user-tag'
 
   def __init__(self, tag):
-    super(Category, self).__init__(self, tag)
+    super(Category, self).__init__()
     ValidateString(tag, 'tag')
 
   def ToXml(self):
@@ -670,7 +701,7 @@ class Link(unicode):
   Raises BadValueError if link is not a fully qualified, well-formed URL.
   """
   def __init__(self, link):
-    super(Link, self).__init__(self, link)
+    super(Link, self).__init__()
     ValidateString(link, 'link', max_len=_MAX_LINK_PROPERTY_LENGTH)
 
     scheme, domain, path, params, query, fragment = urlparse.urlparse(link)
@@ -693,7 +724,7 @@ class Email(unicode):
   Raises BadValueError if email is not a valid email address.
   """
   def __init__(self, email):
-    super(Email, self).__init__(self, email)
+    super(Email, self).__init__()
     ValidateString(email, 'email')
 
   def ToXml(self):
@@ -884,7 +915,7 @@ class PhoneNumber(unicode):
   Raises BadValueError if phone is not a string or subtype.
   """
   def __init__(self, phone):
-    super(PhoneNumber, self).__init__(self, phone)
+    super(PhoneNumber, self).__init__()
     ValidateString(phone, 'phone')
 
   def ToXml(self):
@@ -902,7 +933,7 @@ class PostalAddress(unicode):
   Raises BadValueError if address is not a string or subtype.
   """
   def __init__(self, address):
-    super(PostalAddress, self).__init__(self, address)
+    super(PostalAddress, self).__init__()
     ValidateString(address, 'address')
 
   def ToXml(self):
@@ -924,7 +955,7 @@ class Rating(long):
   MAX = 100
 
   def __init__(self, rating):
-    super(Rating, self).__init__(self, rating)
+    super(Rating, self).__init__()
     if isinstance(rating, float) or isinstance(rating, complex):
       raise datastore_errors.BadValueError(
         'Expected int or long; received %s (a %s).' %
@@ -1474,7 +1505,7 @@ def ToPropertyPb(name, values):
       same type.
 
   Returns:
-    A list of entity_pb.PropertyValue instances.
+    A list of entity_pb.Property instances.
   """
   encoded_name = name.encode('utf-8')
 

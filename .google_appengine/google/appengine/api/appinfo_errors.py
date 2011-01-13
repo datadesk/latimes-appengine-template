@@ -44,3 +44,15 @@ class MissingURLMapping(Error):
 
 class TooManyURLMappings(Error):
   """Raised when there are too many URL mappings in external appinfo."""
+
+class PositionUsedInAppYamlHandler(Error):
+  """Raised when position attribute is used in handler in AppInfoExternal."""
+
+class InvalidBuiltinFormat(Error):
+  """Raised when the name of the builtin in a list item cannot be identified."""
+
+class MultipleBuiltinsSpecified(Error):
+  """Raised when more than one builtin is specified in a single list element."""
+
+class DuplicateBuiltinsSpecified(Error):
+  """Raised when a builtin is specified more than once in the same file."""

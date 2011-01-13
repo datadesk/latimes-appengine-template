@@ -88,7 +88,9 @@ def GenerateBlobKey(time_func=time.time, random_func=random.random):
     digester.update(timestamp)
     digester.update(number)
     blob_key = base64.urlsafe_b64encode(digester.digest())
-    datastore_key = datastore.Key.from_path(blobstore.BLOB_INFO_KIND, blob_key)
+    datastore_key = datastore.Key.from_path(blobstore.BLOB_INFO_KIND,
+                                            blob_key,
+                                            namespace='')
     try:
       datastore.Get(datastore_key)
       tries += 1
@@ -174,7 +176,9 @@ class UploadCGIHandler(object):
     content_type_formatter = base.MIMEBase(main_type, sub_type,
                                            **form_item.type_options)
 
-    blob_entity = datastore.Entity('__BlobInfo__', name=str(blob_key))
+    blob_entity = datastore.Entity('__BlobInfo__',
+                                   name=str(blob_key),
+                                   namespace='')
     blob_entity['content_type'] = (
         content_type_formatter['content-type'].decode('utf-8'))
     blob_entity['creation'] = creation

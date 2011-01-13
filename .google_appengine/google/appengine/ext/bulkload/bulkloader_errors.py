@@ -38,3 +38,7 @@ class InvalidCodeInConfiguration(Error):
 
 class InvalidExportData(Error):
   """The export data cannot be written using this connector object."""
+
+
+class InvalidImportData(Error):
+  """The import data is inconsistent with the configuration."""

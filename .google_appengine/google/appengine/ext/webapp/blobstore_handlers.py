@@ -79,12 +79,13 @@ class UnsupportedRangeFormatError(RangeFormatError):
   """Raised when Range format is correct, but not supported."""
 
 
-def _check_ranges(start, end, use_range, range_header):
+def _check_ranges(start, end, use_range_set, use_range, range_header):
   """Set the range header.
 
   Args:
     start: As passed in from send_blob.
     end: As passed in from send_blob.
+    use_range_set: Use range was explcilty set during call to send_blob.
     use_range: As passed in from send blob.
     range_header: Range header as received in HTTP request.
 
@@ -110,7 +111,7 @@ def _check_ranges(start, end, use_range, range_header):
 
     range_indexes = byterange.Range.serialize_bytes(_BYTES_UNIT, [(start, end)])
 
-  if use_range and use_indexes:
+  if use_range_set and use_range and use_indexes:
     if range_header != range_indexes:
       raise ValueError('May not provide non-equivalent range indexes and '
                        'range headers: (header) %s != (indexes) %s'
@@ -127,10 +128,14 @@ def _check_ranges(start, end, use_range, range_header):
 class BlobstoreDownloadHandler(webapp.RequestHandler):
   """Base class for creating handlers that may send blobs to users."""
 
+
+  __use_range_unset = object()
   def send_blob(self,
                 blob_key_or_info,
                 content_type=None,
                 save_as=None,
+                start=None,
+                end=None,
                 **kwargs):
     """Send a blob-response based on a blob_key.
 
@@ -144,12 +149,13 @@ class BlobstoreDownloadHandler(webapp.RequestHandler):
       save_as: If True, and BlobInfo record is provided, use BlobInfos
         filename to save-as.  If string is provided, use string as filename.
         If None or False, do not send as attachment.
+      start: Start index of content-range to send.
+      end: End index of content-range to send.  End index is inclusive.
+      use_range: Use provided content range from requests Range header.
+        Mutually exclusive to start and end.
 
     Raises:
       ValueError on invalid save_as parameter.
-      UnsupportedRangeFormatError: If the range format in the header is
-        valid, but not supported.
-      RangeFormatError: If the range format in the header is not valid.
     """
     if set(kwargs) - _SEND_BLOB_PARAMETERS:
       invalid_keywords = []
@@ -162,6 +168,19 @@ class BlobstoreDownloadHandler(webapp.RequestHandler):
       else:
         raise TypeError('send_blob got unexpected keyword arguments: %s'
                         % sorted(invalid_keywords))
+
+
+    use_range = kwargs.get('use_range', self.__use_range_unset)
+    use_range_set = use_range is not self.__use_range_unset
+
+    range_header = _check_ranges(start,
+                                 end,
+                                 use_range_set,
+                                 use_range,
+                                 self.request.headers.get('range', None))
+
+    if range_header is not None:
+      self.response.headers[blobstore.BLOB_RANGE_HEADER] = range_header
 
     if isinstance(blob_key_or_info, blobstore.BlobInfo):
       blob_key = blob_key_or_info.key()

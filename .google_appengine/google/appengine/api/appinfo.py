@@ -25,6 +25,7 @@ configuration files.
 
 
 
+import logging
 import re
 
 from google.appengine.api import appinfo_errors
@@ -33,14 +34,13 @@ from google.appengine.api import yaml_builder
 from google.appengine.api import yaml_listener
 from google.appengine.api import yaml_object
 
-
 _URL_REGEX = r'(?!\^)/|\.|(\(.).*(?!\$).'
 _FILES_REGEX = r'(?!\^).*(?!\$).'
 
 _DELTA_REGEX = r'([0-9]+)([DdHhMm]|[sS]?)'
 _EXPIRATION_REGEX = r'\s*(%s)(\s+%s)*\s*' % (_DELTA_REGEX, _DELTA_REGEX)
 
-_SERVICE_RE_STRING = r'(mail|xmpp_message|rest)'
+_SERVICE_RE_STRING = r'(mail|xmpp_message|xmpp_subscribe|xmpp_presence|rest|warmup)'
 
 _PAGE_NAME_REGEX = r'^.+$'
 
@@ -70,6 +70,7 @@ APPLICATION_RE_STRING = (r'(?:%s)?(?:%s)?%s' %
                           DOMAIN_RE_STRING,
                           DISPLAY_APP_ID_RE_STRING))
 VERSION_RE_STRING = r'(?!-)[a-z\d\-]{1,%d}' % MAJOR_VERSION_ID_MAX_LEN
+ALTERNATE_HOSTNAME_SEPARATOR = '-dot-'
 
 RUNTIME_RE_STRING = r'[a-z]{1,30}'
 
@@ -94,10 +95,6 @@ SECURE_DEFAULT = 'default'
 REQUIRE_MATCHING_FILE = 'require_matching_file'
 
 DEFAULT_SKIP_FILES = (r'^(.*/)?('
-                      r'(app\.yaml)|'
-                      r'(app\.yml)|'
-                      r'(index\.yaml)|'
-                      r'(index\.yml)|'
                       r'(#.*#)|'
                       r'(.*~)|'
                       r'(.*\.py[co])|'
@@ -109,6 +106,9 @@ LOGIN = 'login'
 AUTH_FAIL_ACTION = 'auth_fail_action'
 SECURE = 'secure'
 URL = 'url'
+POSITION = 'position'
+POSITION_HEAD = 'head'
+POSITION_TAIL = 'tail'
 STATIC_FILES = 'static_files'
 UPLOAD = 'upload'
 STATIC_DIR = 'static_dir'
@@ -120,6 +120,8 @@ APPLICATION = 'application'
 VERSION = 'version'
 RUNTIME = 'runtime'
 API_VERSION = 'api_version'
+BUILTINS = 'builtins'
+INCLUDES = 'includes'
 HANDLERS = 'handlers'
 DEFAULT_EXPIRATION = 'default_expiration'
 SKIP_FILES = 'skip_files'
@@ -128,9 +130,19 @@ DERIVED_FILE_TYPE = 'derived_file_type'
 JAVA_PRECOMPILED = 'java_precompiled'
 PYTHON_PRECOMPILED = 'python_precompiled'
 ADMIN_CONSOLE = 'admin_console'
+ERROR_HANDLERS = 'error_handlers'
 
 PAGES = 'pages'
 NAME = 'name'
+
+ERROR_CODE = 'error_code'
+FILE = 'file'
+_ERROR_CODE_REGEX = r'(default|over_quota|dos_api_denial|timeout)'
+
+ON = 'on'
+ON_ALIASES = ['yes', 'y', 'True', 't', '1', 'true']
+OFF = 'off'
+OFF_ALIASES = ['no', 'n', 'False', 'f', '0', 'false']
 
 
 class URLMap(validation.Validated):
@@ -177,6 +189,11 @@ class URLMap(validation.Validated):
       value.
     script: Handler id that maps URLs to scipt handler within the application
       directory that will run using CGI.
+    position: Used in AppInclude objects to specify whether a handler
+      should be inserted at the beginning of the primary handler list or at the
+      end.  If 'tail' is specified, the handler is inserted at the end,
+      otherwise, the handler is inserted at the beginning.  This means that
+      'head' is the effective default.
     expiration: When used with static files and directories, the time delta to
       use for cache expiration. Has the form '4d 5h 30m 15s', where each letter
       signifies days, hours, minutes, and seconds, respectively. The 's' for
@@ -233,11 +250,12 @@ class URLMap(validation.Validated):
 
       MIME_TYPE: validation.Optional(str),
       EXPIRATION: validation.Optional(_EXPIRATION_REGEX),
+      REQUIRE_MATCHING_FILE: validation.Optional(bool),
 
 
       HANDLER_SCRIPT: validation.Optional(_FILES_REGEX),
-
-      REQUIRE_MATCHING_FILE: validation.Optional(bool),
+      POSITION: validation.Optional(validation.Options(POSITION_HEAD,
+                                                       POSITION_TAIL)),
   }
 
   COMMON_FIELDS = set([URL, LOGIN, AUTH_FAIL_ACTION, SECURE])
@@ -246,7 +264,7 @@ class URLMap(validation.Validated):
       HANDLER_STATIC_FILES: (MIME_TYPE, UPLOAD, EXPIRATION,
                              REQUIRE_MATCHING_FILE),
       HANDLER_STATIC_DIR: (MIME_TYPE, EXPIRATION, REQUIRE_MATCHING_FILE),
-      HANDLER_SCRIPT: (),
+      HANDLER_SCRIPT: (POSITION),
   }
 
   def GetHandler(self):
@@ -318,6 +336,36 @@ class URLMap(validation.Validated):
     super(URLMap, self).CheckInitialized()
     self.GetHandlerType()
 
+  def FixSecureDefaults(self):
+    """Force omitted 'secure: ...' handler fields to 'secure: optional'.
+
+    The effect is that handler.secure is never equal to the (nominal)
+    default.
+
+    See http://b/issue?id=2073962.
+    """
+    if self.secure == SECURE_DEFAULT:
+      self.secure = SECURE_HTTP_OR_HTTPS
+
+  def WarnReservedURLs(self):
+    """Generates a warning for reserved URLs.
+
+    See:
+    http://code.google.com/appengine/docs/python/config/appconfig.html#Reserved_URLs
+    """
+    if self.url == '/form':
+      logging.warning(
+          'The URL path "/form" is reserved and will not be matched.')
+
+  def ErrorOnPositionForAppInfo(self):
+    """Raises an error if position is specified outside of AppInclude objects.
+    """
+    if self.position:
+      raise appinfo_errors.PositionUsedInAppYamlHandler(
+          'The position attribute was specified for this handler, but this is '
+          'an app.yaml file.  Position attribute is only valid for '
+          'include.yaml files.')
+
 
 class AdminConsolePage(validation.Validated):
   """Class representing admin console page in AdminConsole object.
@@ -334,6 +382,212 @@ class AdminConsole(validation.Validated):
   ATTRIBUTES = {
       PAGES: validation.Optional(validation.Repeated(AdminConsolePage)),
   }
+
+  @classmethod
+  def Merge(cls, adminconsole_one, adminconsole_two):
+    """Return the result of merging two AdminConsole objects."""
+
+    if not adminconsole_one or not adminconsole_two:
+      return adminconsole_one or adminconsole_two
+
+    if adminconsole_one.pages:
+      if adminconsole_two.pages:
+        adminconsole_one.pages.extend(adminconsole_two.pages)
+    else:
+      adminconsole_one.pages = adminconsole_two.pages
+
+    return adminconsole_one
+
+
+class ErrorHandlers(validation.Validated):
+  """Class representing error handler directives in application info.
+  """
+  ATTRIBUTES = {
+      ERROR_CODE: validation.Optional(_ERROR_CODE_REGEX),
+      FILE: _FILES_REGEX,
+      MIME_TYPE: validation.Optional(str),
+  }
+
+
+class BuiltinHandler(validation.Validated):
+  """Class representing builtin handler directives in application info.
+
+  Permits arbitrary keys but their values must be described by the
+  validation.Options object returned by ATTRIBUTES.
+  """
+
+
+  class DynamicAttributes(dict):
+    """Provide a dictionary object that will always claim to have a key.
+
+    This dictionary returns a fixed value for any get operation.  The fixed
+    value passed in as a constructor parameter should be a
+    validation.Validated object.
+    """
+
+    def __init__(self, return_value, **parameters):
+      self.__return_value = return_value
+      dict.__init__(self, parameters)
+
+    def __contains__(self, _):
+      return True
+
+    def __getitem__(self, _):
+      return self.__return_value
+
+  ATTRIBUTES = DynamicAttributes(
+      validation.Optional(validation.Options((ON, ON_ALIASES),
+                                             (OFF, OFF_ALIASES))))
+
+  def __init__(self, **attributes):
+    """Ensure that all BuiltinHandler objects at least have attribute 'default'.
+    """
+    self.ATTRIBUTES.clear()
+    self.builtin_name = ''
+    super(BuiltinHandler, self).__init__(**attributes)
+
+  def __setattr__(self, key, value):
+    """Permit ATTRIBUTES.iteritems() to return set of items that have values.
+
+    Whenever validate calls iteritems(), it is always called on ATTRIBUTES,
+    not on __dict__, so this override is important to ensure that functions
+    such as ToYAML() return the correct set of keys.
+    """
+    if key == 'builtin_name':
+      object.__setattr__(self, key, value)
+    elif not self.builtin_name:
+      self.ATTRIBUTES[key] = ''
+      self.builtin_name = key
+      super(BuiltinHandler, self).__setattr__(key, value)
+    else:
+      raise appinfo_errors.MultipleBuiltinsSpecified(
+          'More than one builtin defined in list element.  Each new builtin '
+          'should be prefixed by "-".')
+
+  def ToDict(self):
+    """Convert BuiltinHander object to a dictionary.
+
+    Returns:
+      dictionary of the form: {builtin_handler_name: on/off}
+    """
+    return {self.builtin_name: getattr(self, self.builtin_name)}
+
+  @classmethod
+  def IsDefined(cls, builtins_list, builtin_name):
+    """Find if a builtin is defined in a given list of builtin handler objects.
+
+    Args:
+      builtins_list: list of BuiltinHandler objects (typically yaml.builtins)
+      builtin_name: name of builtin to find whether or not it is defined
+
+    Returns:
+      true if builtin_name is defined by a member of builtins_list,
+      false otherwise
+    """
+    for b in builtins_list:
+      if b.builtin_name == builtin_name:
+        return True
+    return False
+
+  @classmethod
+  def ListToTuples(cls, builtins_list):
+    """Converts a list of BuiltinHandler objects to a list of (name, status)."""
+    return [(b.builtin_name, getattr(b, b.builtin_name)) for b in builtins_list]
+
+  @classmethod
+  def Validate(cls, builtins_list):
+    """Verify that all BuiltinHandler objects are valid and not repeated.
+
+    Args:
+      builtins_list: list of BuiltinHandler objects to validate.
+
+    Raises:
+      InvalidBuiltinFormat if the name of a Builtinhandler object
+          cannot be determined.
+      DuplicateBuiltinSpecified if a builtin handler name is used
+          more than once in the list.
+    """
+    seen = set()
+    for b in builtins_list:
+      if not b.builtin_name:
+        raise appinfo_errors.InvalidBuiltinFormat(
+            'Name of builtin for list object %s could not be determined.'
+            % b)
+      if b.builtin_name in seen:
+        raise appinfo_errors.DuplicateBuiltinsSpecified(
+            'Builtin %s was specified more than once in one yaml file.'
+            % b.builtin_name)
+      seen.add(b.builtin_name)
+
+
+class AppInclude(validation.Validated):
+  """Class representing the contents of an included app.yaml file.
+
+  Used for both builtins and includes directives.
+  """
+
+  ATTRIBUTES = {
+      BUILTINS: validation.Optional(validation.Repeated(BuiltinHandler)),
+      INCLUDES: validation.Optional(validation.Type(list)),
+      HANDLERS: validation.Optional(validation.Repeated(URLMap)),
+      ADMIN_CONSOLE: validation.Optional(AdminConsole),
+  }
+
+  @classmethod
+  def MergeAppYamlAppInclude(cls, appyaml, appinclude):
+    """This function merges an app.yaml file with referenced builtins/includes.
+    """
+
+    if not appinclude:
+      return appyaml
+
+    if appinclude.handlers:
+      tail = appyaml.handlers or []
+      appyaml.handlers = []
+
+      for h in appinclude.handlers:
+        if not h.position or h.position == 'head':
+          appyaml.handlers.append(h)
+        else:
+          tail.append(h)
+
+      appyaml.handlers.extend(tail)
+
+    appyaml.admin_console = AdminConsole.Merge(appyaml.admin_console,
+                                               appinclude.admin_console)
+
+    return appyaml
+
+  @classmethod
+  def MergeAppIncludes(cls, appinclude_one, appinclude_two):
+    """This function merges the non-referential state of the provided AppInclude
+    objects.  That is, builtins and includes directives are not preserved, but
+    any static objects are copied into an aggregate AppInclude object that
+    preserves the directives of both provided AppInclude objects.
+
+    Args:
+      appinclude_one: object one to merge
+      appinclude_two: object two to merge
+
+    Returns:
+      AppInclude object that is the result of merging the static directives of
+      appinclude_one and appinclude_two.
+    """
+
+    if not appinclude_one or not appinclude_two:
+      return appinclude_one or appinclude_two
+
+    if appinclude_one.handlers:
+      if appinclude_two.handlers:
+        appinclude_one.handlers.extend(appinclude_two.handlers)
+    else:
+      appinclude_one.handlers = appinclude_two.handlers
+
+    appinclude_one.admin_console = (
+        AdminConsole.Merge(appinclude_one.admin_console,
+                           appinclude_two.admin_console))
+
+    return appinclude_one
 
 
 class AppInfoExternal(validation.Validated):
@@ -367,6 +621,8 @@ class AppInfoExternal(validation.Validated):
 
 
       API_VERSION: API_VERSION_RE_STRING,
+      BUILTINS: validation.Optional(validation.Repeated(BuiltinHandler)),
+      INCLUDES: validation.Optional(validation.Type(list)),
       HANDLERS: validation.Optional(validation.Repeated(URLMap)),
 
       SERVICES: validation.Optional(validation.Repeated(
@@ -376,36 +632,32 @@ class AppInfoExternal(validation.Validated):
       DERIVED_FILE_TYPE: validation.Optional(validation.Repeated(
           validation.Options(JAVA_PRECOMPILED, PYTHON_PRECOMPILED))),
       ADMIN_CONSOLE: validation.Optional(AdminConsole),
+      ERROR_HANDLERS: validation.Optional(validation.Repeated(ErrorHandlers)),
   }
 
   def CheckInitialized(self):
-    """Ensures that at least one url mapping is provided.
+    """Performs non-regex-based validation.
+
+    Ensures that at least one url mapping is provided in the URL mappers
+    Also ensures that the major version doesn't contain the string
+    -dot-.
 
     Raises:
       MissingURLMapping when no URLMap objects are present in object.
       TooManyURLMappings when there are too many URLMap entries.
     """
     super(AppInfoExternal, self).CheckInitialized()
-    if not self.handlers:
+    if not self.handlers and not self.builtins and not self.includes:
       raise appinfo_errors.MissingURLMapping(
           'No URLMap entries found in application configuration')
-    if len(self.handlers) > MAX_URL_MAPS:
+    if self.handlers and len(self.handlers) > MAX_URL_MAPS:
       raise appinfo_errors.TooManyURLMappings(
           'Found more than %d URLMap entries in application configuration' %
           MAX_URL_MAPS)
-
-  def FixSecureDefaults(self):
-    """Force omitted 'secure: ...' handler fields to 'secure: optional'.
-
-    The effect is that handler.secure is never equal to the (nominal)
-    default.
-
-    See http://b/issue?id=2073962.
-    """
-    if self.handlers:
-      for handler in self.handlers:
-        if handler.secure == SECURE_DEFAULT:
-          handler.secure = SECURE_HTTP_OR_HTTPS
+    if self.version.find(ALTERNATE_HOSTNAME_SEPARATOR) != -1:
+      raise validation.ValidationError(
+          'App version "%s" cannot contain the string "%s"' % (
+              self.version, ALTERNATE_HOSTNAME_SEPARATOR))
 
 
 def LoadSingleAppInfo(app_info):
@@ -435,8 +687,55 @@ def LoadSingleAppInfo(app_info):
     raise appinfo_errors.EmptyConfigurationFile()
   if len(app_infos) > 1:
     raise appinfo_errors.MultipleConfigurationFile()
-  app_infos[0].FixSecureDefaults()
-  return app_infos[0]
+
+  appyaml = app_infos[0]
+  if appyaml.handlers:
+    for handler in appyaml.handlers:
+      handler.FixSecureDefaults()
+      handler.WarnReservedURLs()
+      handler.ErrorOnPositionForAppInfo()
+  if appyaml.builtins:
+    BuiltinHandler.Validate(appyaml.builtins)
+
+  return appyaml
+
+
+def LoadAppInclude(app_include):
+  """Load a single AppInclude object where one and only one is expected.
+
+  Args:
+    app_include: A file-like object or string.  If it is a string, parse it as
+    a configuration file.  If it is a file-like object, read in data and
+    parse.
+
+  Returns:
+    An instance of AppInclude as loaded from a YAML file.
+
+  Raises:
+    EmptyConfigurationFile: when there are no documents in YAML file.
+    MultipleConfigurationFile: when there is more than one document in YAML
+    file.
+  """
+  builder = yaml_object.ObjectBuilder(AppInclude)
+  handler = yaml_builder.BuilderHandler(builder)
+  listener = yaml_listener.EventListener(handler)
+  listener.Parse(app_include)
+
+  includes = handler.GetResults()
+  if len(includes) < 1:
+    raise appinfo_errors.EmptyConfigurationFile()
+  if len(includes) > 1:
+    raise appinfo_errors.MultipleConfigurationFile()
+
+  includeyaml = includes[0]
+  if includeyaml.handlers:
+    for handler in includeyaml.handlers:
+      handler.FixSecureDefaults()
+      handler.WarnReservedURLs()
+  if includeyaml.builtins:
+    BuiltinHandler.Validate(includeyaml.builtins)
+
+  return includeyaml
 
 
 def ParseExpiration(expiration):

@@ -72,7 +72,7 @@ def CreateUploadSession(creation, success_path, user):
   Returns:
     String encoded key of new Datastore entity.
   """
-  entity = datastore.Entity(_UPLOAD_SESSION_KIND)
+  entity = datastore.Entity(_UPLOAD_SESSION_KIND, namespace='')
   entity.update({'creation': creation,
                  'success_path': success_path,
                  'user': user,
@@ -234,7 +234,8 @@ class BlobstoreServiceStub(apiproxy_stub.APIProxyStub):
     """
     for blob_key in request.blob_key_list():
       key = datastore_types.Key.from_path(blobstore.BLOB_INFO_KIND,
-                                          str(blob_key))
+                                          str(blob_key),
+                                          namespace='')
 
       datastore.Delete(key)
       self.__storage.DeleteBlob(blob_key)
@@ -274,7 +275,9 @@ class BlobstoreServiceStub(apiproxy_stub.APIProxyStub):
           blobstore_service_pb.BlobstoreServiceError.BLOB_FETCH_SIZE_TOO_LARGE)
 
     blob_key = request.blob_key()
-    blob_info_key = datastore.Key.from_path(blobstore.BLOB_INFO_KIND, blob_key)
+    blob_info_key = datastore.Key.from_path(blobstore.BLOB_INFO_KIND,
+                                            blob_key,
+                                            namespace='')
     try:
       datastore.Get(blob_info_key)
     except datastore_errors.EntityNotFoundError, err:

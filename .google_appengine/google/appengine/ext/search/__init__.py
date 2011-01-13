@@ -114,7 +114,7 @@ from google.appengine.api import datastore
 from google.appengine.api import datastore_errors
 from google.appengine.api import datastore_types
 from google.appengine.ext import db
-from google.appengine.datastore import datastore_pb
+from google.appengine.datastore import datastore_query
 
 ALL_PROPERTIES = []
 
@@ -299,14 +299,14 @@ class SearchableQuery(datastore.Query):
     self._properties = properties
     return self
 
-  def _ToPb(self, *args, **kwds):
+  def GetFilterPredicate(self, *args, **kwds):
     """Adds filters for the search query, then delegates to the superclass.
 
-    Mimics Query._ToPb()'s signature. Raises BadFilterError if a filter on the
-    index property already exists.
+    Mimics Query.GetFilterPredicate()'s signature. Raises BadFilterError if a
+    filter on the index property already exists.
 
     Returns:
-      datastore_pb.Query
+      datastore_query.FilterPredicate
     """
 
     properties = getattr(self, "_properties", ALL_PROPERTIES)
@@ -316,20 +316,21 @@ class SearchableQuery(datastore.Query):
       raise datastore_errors.BadFilterError(
         '%s is a reserved name.' % index_property_name)
 
-    pb = super(SearchableQuery, self)._ToPb(*args, **kwds)
+    filter = super(SearchableQuery, self).GetFilterPredicate(*args, **kwds)
 
     if hasattr(self, '_search_query'):
       keywords = SearchableEntity._FullTextIndex(
           self._search_query, self._word_delimiter_regex)
-      for keyword in keywords:
-        filter = pb.add_filter()
-        filter.set_op(datastore_pb.Query_Filter.EQUAL)
-        prop = filter.add_property()
-        prop.set_name(index_property_name)
-        prop.set_multiple(len(keywords) > 1)
-        prop.mutable_value().set_stringvalue(unicode(keyword).encode('utf-8'))
-
-    return pb
+      if keywords:
+        search_filter = datastore_query.make_filter(
+            index_property_name, '=', list(keywords))
+        if filter:
+          filter = datastore_query.CompositeFilter(
+              datastore_query.CompositeFilter.AND,
+              [filter, search_filter])
+        else:
+          filter = search_filter
+    return filter
 
 
 class SearchableMultiQuery(datastore.MultiQuery):

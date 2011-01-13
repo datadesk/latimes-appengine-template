@@ -30,11 +30,13 @@ Classes/variables/functions defined here:
 
 import inspect
 import sys
+import threading
 
 from google.appengine.api import apiproxy_rpc
+from google.appengine.runtime import apiproxy_errors
 
 
-def CreateRPC(service):
+def CreateRPC(service, stubmap=None):
   """Creates a RPC instance for the given service.
 
   The instance is suitable for talking to remote services.
@@ -42,6 +44,7 @@ def CreateRPC(service):
 
   Args:
     service: string representing which service to call.
+    stubmap: optional APIProxyStubMap instance, for dependency injection.
 
   Returns:
     the rpc object.
@@ -50,14 +53,16 @@ def CreateRPC(service):
     AssertionError or RuntimeError if the stub for service doesn't supply a
     CreateRPC method.
   """
-  stub = apiproxy.GetStub(service)
+  if stubmap is None:
+    stubmap = apiproxy
+  stub = stubmap.GetStub(service)
   assert stub, 'No api proxy found for service "%s"' % service
   assert hasattr(stub, 'CreateRPC'), (('The service "%s" doesn\'t have ' +
                                        'a CreateRPC method.') % service)
   return stub.CreateRPC()
 
 
-def MakeSyncCall(service, call, request, response):
+def MakeSyncCall(service, call, request, response, stubmap=None):
   """The APIProxy entry point for a synchronous API call.
 
   Args:
@@ -65,6 +70,7 @@ def MakeSyncCall(service, call, request, response):
     call: string representing which function to call
     request: protocol buffer for the request
     response: protocol buffer for the response
+    stubmap: optional APIProxyStubMap instance, for dependency injection.
 
   Returns:
     Response protocol buffer or None. Some implementations may return
@@ -75,7 +81,9 @@ def MakeSyncCall(service, call, request, response):
   Raises:
     apiproxy_errors.Error or a subclass.
   """
-  return apiproxy.MakeSyncCall(service, call, request, response)
+  if stubmap is None:
+    stubmap = apiproxy
+  return stubmap.MakeSyncCall(service, call, request, response)
 
 
 class ListOfHooks(object):
@@ -326,25 +334,53 @@ class UserRPC(object):
   and then extract the user-level result from the rpc.result
   protobuffer.  Additional arguments may be passed from
   make_method_call() to the get_result hook via the second argument.
+
+  Also note wait_any() and wait_all(), which wait for multiple RPCs.
   """
 
   __method = None
   __get_result_hook = None
   __user_data = None
   __postcall_hooks_called = False
+  __must_call_user_callback = False
 
-  def __init__(self, service, deadline=None, callback=None):
+  class MyLocal(threading.local):
+    """Class to hold per-thread class level attributes."""
+
+    may_interrupt_wait = False
+
+  __local = MyLocal()
+
+  def __init__(self, service, deadline=None, callback=None, stubmap=None):
     """Constructor.
 
     Args:
       service: The service name.
       deadline: Optional deadline.  Default depends on the implementation.
       callback: Optional argument-less callback function.
+      stubmap: optional APIProxyStubMap instance, for dependency injection.
     """
+    if stubmap is None:
+      stubmap = apiproxy
+    self.__stubmap = stubmap
     self.__service = service
-    self.__rpc = CreateRPC(service)
+    self.__rpc = CreateRPC(service, stubmap)
     self.__rpc.deadline = deadline
-    self.__rpc.callback = callback
+    self.__rpc.callback = self.__internal_callback
+    self.callback = callback
+
+    self.__class__.__local.may_interrupt_wait = False
+
+  def __internal_callback(self):
+    """This is the callback set on the low-level RPC object.
+
+    It sets a flag on the current object indicating that the high-level
+    callback should now be called.  If interrupts are enabled, it also
+    interrupts the current wait_any() call by raising an exception.
+    """
+    self.__must_call_user_callback = True
+    if self.__class__.__local.may_interrupt_wait and not self.__rpc.exception:
+      raise apiproxy_errors.InterruptedError(None, self.__rpc)
 
   @property
   def service(self):
@@ -360,24 +396,6 @@ class UserRPC(object):
   def deadline(self):
     """Return the deadline, if set explicitly (otherwise None)."""
     return self.__rpc.deadline
-
-  def __get_callback(self):
-    """Return the callback attribute, a function without arguments.
-
-    This attribute can also be assigned to.  For example, the
-    following code calls some_other_function(rpc) when the RPC is
-    complete:
-
-      rpc = service.create_rpc()
-      rpc.callback = lambda: some_other_function(rpc)
-      service.make_method_call(rpc)
-      rpc.wait()
-    """
-    return self.__rpc.callback
-  def __set_callback(self, callback):
-    """Set the callback function."""
-    self.__rpc.callback = callback
-  callback = property(__get_callback, __set_callback)
 
   @property
   def request(self):
@@ -434,17 +452,18 @@ class UserRPC(object):
     self.__method = method
     self.__get_result_hook = get_result_hook
     self.__user_data = user_data
-    apiproxy.GetPreCallHooks().Call(
+    self.__stubmap.GetPreCallHooks().Call(
         self.__service, method, request, response, self.__rpc)
     self.__rpc.MakeCall(self.__service, method, request, response)
 
   def wait(self):
-    """Wait for the call to complete, and call callbacks.
+    """Wait for the call to complete, and call callback if needed.
 
-    This is the only time callback functions may be called.  (However,
-    note that check_success() and get_result() call wait().)   Waiting
-    for one RPC may cause callbacks for other RPCs to be called.
-    Callback functions may call check_success() and get_result().
+    This and wait_any()/wait_all() are the only time callback
+    functions may be called.  (However, note that check_success() and
+    get_result() call wait().)  Waiting for one RPC will not cause
+    callbacks for other RPCs to be called.  Callback functions may
+    call check_success() and get_result().
 
     Callbacks are called without arguments; if a callback needs access
     to the RPC object a Python nested function (a.k.a. closure) or a
@@ -459,6 +478,14 @@ class UserRPC(object):
     if self.__rpc.state == apiproxy_rpc.RPC.RUNNING:
       self.__rpc.Wait()
     assert self.__rpc.state == apiproxy_rpc.RPC.FINISHING, repr(self.state)
+    self.__call_user_callback()
+
+  def __call_user_callback(self):
+    """Call the high-level callback, if requested."""
+    if self.__must_call_user_callback:
+      self.__must_call_user_callback = False
+      if self.callback is not None:
+        self.callback()
 
   def check_success(self):
     """Check for success of the RPC, possibly raising an exception.
@@ -475,15 +502,16 @@ class UserRPC(object):
     except Exception, err:
       if not self.__postcall_hooks_called:
         self.__postcall_hooks_called = True
-        apiproxy.GetPostCallHooks().Call(self.__service, self.__method,
-                                         self.request, self.response,
-                                         self.__rpc, err)
+        self.__stubmap.GetPostCallHooks().Call(self.__service, self.__method,
+                                               self.request, self.response,
+                                               self.__rpc, err)
       raise
     else:
       if not self.__postcall_hooks_called:
         self.__postcall_hooks_called = True
-        apiproxy.GetPostCallHooks().Call(self.__service, self.__method,
-                                         self.request, self.response, self.__rpc)
+        self.__stubmap.GetPostCallHooks().Call(self.__service, self.__method,
+                                               self.request, self.response,
+                                               self.__rpc)
 
   def get_result(self):
     """Get the result of the RPC, or possibly raise an exception.
@@ -499,6 +527,95 @@ class UserRPC(object):
       return None
     else:
       return self.__get_result_hook(self)
+
+  @classmethod
+  def __check_one(cls, rpcs):
+    """Check the list of RPCs for one that is finished, or one that is running.
+
+    Args:
+      rpcs: Iterable collection of UserRPC instances.
+
+    Returns:
+      A pair (finished, running), as follows:
+      (UserRPC, None) indicating the first RPC found that is finished;
+      (None, UserRPC) indicating the first RPC found that is running;
+      (None, None) indicating no RPCs are finished or running.
+    """
+    rpc = None
+    for rpc in rpcs:
+      assert isinstance(rpc, cls), repr(rpc)
+      state = rpc.__rpc.state
+      if state == apiproxy_rpc.RPC.FINISHING:
+        rpc.__call_user_callback()
+        return rpc, None
+      assert state != apiproxy_rpc.RPC.IDLE, repr(rpc)
+    return None, rpc
+
+  @classmethod
+  def wait_any(cls, rpcs):
+    """Wait until an RPC is finished.
+
+    Args:
+      rpcs: Iterable collection of UserRPC instances.
+
+    Returns:
+      A UserRPC instance, indicating the first RPC among the given
+      RPCs that finished; or None, indicating that either an RPC not
+      among the given RPCs finished in the mean time, or the iterable
+      is empty.
+
+    NOTES:
+
+    (1) Repeatedly calling wait_any() with the same arguments will not
+        make progress; it will keep returning the same RPC (the one
+        that finished first).  The callback, however, will only be
+        called the first time the RPC finishes (which may be here or
+        in the wait() method).
+
+    (2) It may return before any of the given RPCs finishes, if
+        another pending RPC exists that is not included in the rpcs
+        argument.  In this case the other RPC's callback will *not*
+        be called.  The motivation for this feature is that wait_any()
+        may be used as a low-level building block for a variety of
+        high-level constructs, some of which prefer to block for the
+        minimal amount of time without busy-waiting.
+    """
+    assert iter(rpcs) is not rpcs, 'rpcs must be a collection, not an iterator'
+    finished, running = cls.__check_one(rpcs)
+    if finished is not None:
+      return finished
+    if running is None:
+      return None
+    try:
+      cls.__local.may_interrupt_wait = True
+      try:
+        running.__rpc.Wait()
+      except apiproxy_errors.InterruptedError, err:
+        err.rpc._RPC__exception = None
+        err.rpc._RPC__traceback = None
+    finally:
+      cls.__local.may_interrupt_wait = False
+    finished, runnning = cls.__check_one(rpcs)
+    return finished
+
+  @classmethod
+  def wait_all(cls, rpcs):
+    """Wait until all given RPCs are finished.
+
+    This is a thin wrapper around wait_any() that loops until all
+    given RPCs have finished.
+
+    Args:
+      rpcs: Iterable collection of UserRPC instances.
+
+    Returns:
+      None.
+    """
+    rpcs = set(rpcs)
+    while rpcs:
+      finished = cls.wait_any(rpcs)
+      if finished is not None:
+        rpcs.remove(finished)
 
 
 def GetDefaultAPIProxy():

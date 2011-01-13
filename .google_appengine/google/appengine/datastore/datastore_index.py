@@ -379,9 +379,14 @@ def CompositeIndexForQuery(query):
 
   ineq_property = None
   if ineq_filters:
-    ineq_property = ineq_filters[0].property(0).name()
     for filter in ineq_filters:
-      assert filter.property(0).name() == ineq_property
+      if (filter.property(0).name() ==
+          datastore_types._UNAPPLIED_LOG_TIMESTAMP_SPECIAL_PROPERTY):
+        continue
+      if not ineq_property:
+        ineq_property = filter.property(0).name()
+      else:
+        assert filter.property(0).name() == ineq_property
 
   props = []
 

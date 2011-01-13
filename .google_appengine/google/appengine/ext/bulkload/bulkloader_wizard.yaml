@@ -48,6 +48,7 @@ transformers:
       - import: re
       - import: google.appengine.ext.bulkload.transform
       - import: google.appengine.ext.bulkload.bulkloader_wizard
+      - import: google.appengine.ext.db
       - import: google.appengine.api.datastore
       - import: google.appengine.api.users
 

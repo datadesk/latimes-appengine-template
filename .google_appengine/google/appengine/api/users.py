@@ -58,7 +58,7 @@ class NotAllowedError(Error):
 class User(object):
   """A user.
 
-  We provide the email address, nickname, auth domain, and id for a user.
+  We provide the email address, nickname, and id for a user.
 
   A nickname is a human-readable string which uniquely identifies a Google
   user, akin to a username. It will be an email address for some users, but
@@ -72,6 +72,8 @@ class User(object):
 
 
   __user_id = None
+  __federated_identity = None
+  __federated_provider = None
 
   def __init__(self, email=None, _auth_domain=None,
                _user_id=None, federated_identity=None, federated_provider=None):
@@ -138,7 +140,10 @@ class User(object):
     return self.__user_id
 
   def auth_domain(self):
-    """Return this user's auth domain."""
+    """Return this user's auth domain.
+
+    This method is internal and should not be used by client applications.
+    """
     return self.__auth_domain
 
   def federated_identity(self):

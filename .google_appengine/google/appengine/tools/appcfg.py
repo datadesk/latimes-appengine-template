@@ -31,6 +31,7 @@ files, and commit or rollback the transaction.
 
 import calendar
 import datetime
+import errno
 import getpass
 import logging
 import mimetypes
@@ -49,6 +50,8 @@ import google
 import yaml
 from google.appengine.cron import groctimespecification
 from google.appengine.api import appinfo
+from google.appengine.api import appinfo_errors
+from google.appengine.api import appinfo_includes
 from google.appengine.api import croninfo
 from google.appengine.api import dosinfo
 from google.appengine.api import queueinfo
@@ -56,6 +59,7 @@ from google.appengine.api import validation
 from google.appengine.api import yaml_errors
 from google.appengine.api import yaml_object
 from google.appengine.datastore import datastore_index
+from google.appengine.ext import builtins
 from google.appengine.tools import appengine_rpc
 from google.appengine.tools import bulkloader
 
@@ -79,6 +83,7 @@ BATCH_OVERHEAD = 500
 
 verbosity = 1
 
+PREFIXED_BY_ADMIN_CONSOLE_RE = '^(?:admin-console)(.*)'
 
 appinfo.AppInfoExternal.ATTRIBUTES[appinfo.RUNTIME] = 'python'
 _api_versions = os.environ.get('GOOGLE_TEST_API_VERSIONS', '1')
@@ -134,8 +139,44 @@ def GetMimeTypeIfStaticFile(config, filename):
   return None
 
 
+def LookupErrorBlob(config, filename):
+  """Looks up the mime type and error_code for 'filename'.
+
+  Uses the error handlers in 'config' to determine if the file should
+  be treated as an error blob.
+
+  Args:
+    config: The app.yaml object to check the filename against.
+    filename: The name of the file.
+
+  Returns:
+
+    A tuple of (mime_type, error_code), or (None, None) if this is not an error
+    blob.  For example, ('text/plain', default) or ('image/gif', timeout) or
+    (None, None).
+  """
+  if not config.error_handlers:
+    return (None, None)
+  for error_handler in config.error_handlers:
+    if error_handler.file == filename:
+      error_code = error_handler.error_code
+      if not error_code:
+        error_code = 'default'
+      if error_handler.mime_type is not None:
+        return (error_handler.mime_type, error_code)
+      else:
+        guess = mimetypes.guess_type(filename)[0]
+        if guess is None:
+          default = 'application/octet-stream'
+          print >>sys.stderr, ('Could not guess mimetype for %s.  Using %s.'
+                               % (filename, default))
+          return (default, error_code)
+        return (guess, error_code)
+  return (None, None)
+
+
 def BuildClonePostBody(file_tuples):
-  """Build the post body for the /api/clone{files,blobs} urls.
+  """Build the post body for the /api/clone{files,blobs,errorblobs} urls.
 
   Args:
     file_tuples: A list of tuples.  Each tuple should contain the entries
@@ -204,36 +245,52 @@ def GetVersionObject(isfile=os.path.isfile, open_fn=open):
   return version
 
 
-def RetryWithBackoff(initial_delay, backoff_factor, max_delay, max_tries,
-                     callable_func):
+def RetryWithBackoff(callable_func, retry_notify_func,
+                     initial_delay=1, backoff_factor=2,
+                     max_delay=60, max_tries=20):
   """Calls a function multiple times, backing off more and more each time.
 
   Args:
+    callable_func: A function that performs some operation that should be
+      retried a number of times up on failure.  Signature: () -> (done, value)
+      If 'done' is True, we'll immediately return (True, value)
+      If 'done' is False, we'll delay a bit and try again, unless we've
+      hit the 'max_tries' limit, in which case we'll return (False, value).
+    retry_notify_func: This function will be called immediately before the
+      next retry delay.  Signature: (value, delay) -> None
+      'value' is the value returned by the last call to 'callable_func'
+      'delay' is the retry delay, in seconds
     initial_delay: Initial delay after first try, in seconds.
     backoff_factor: Delay will be multiplied by this factor after each try.
-    max_delay: Max delay factor.
-    max_tries: Maximum number of tries.
-    callable_func: The method to call, will pass no arguments.
+    max_delay: Maximum delay, in seconds.
+    max_tries: Maximum number of tries (the first one counts).
 
   Returns:
-    True if the function succeded in one of its tries.
+    What the last call to 'callable_func' returned, which is of the form
+    (done, value).  If 'done' is True, you know 'callable_func' returned True
+    before we ran out of retries.  If 'done' is False, you know 'callable_func'
+    kept returning False and we ran out of retries.
 
   Raises:
     Whatever the function raises--an exception will immediately stop retries.
   """
+
   delay = initial_delay
-  if callable_func():
-    return True
-  while max_tries > 1:
-    StatusUpdate('Will check again in %s seconds.' % delay)
+  num_tries = 0
+
+  while True:
+    done, opaque_value = callable_func()
+    num_tries += 1
+
+    if done:
+      return True, opaque_value
+
+    if num_tries >= max_tries:
+      return False, opaque_value
+
+    retry_notify_func(opaque_value, delay)
     time.sleep(delay)
-    delay *= backoff_factor
-    if max_delay and delay > max_delay:
-      delay = max_delay
-    max_tries -= 1
-    if callable_func():
-      return True
-  return False
+    delay = min(delay * backoff_factor, max_delay)
 
 
 def _VersionList(release):
@@ -562,7 +619,7 @@ class CronEntryUpload(object):
   def DoUpload(self):
     """Uploads the cron entries."""
     StatusUpdate('Uploading cron entries.')
-    self.server.Send('/api/datastore/cron/update',
+    self.server.Send('/api/cron/update',
                      app_id=self.config.application,
                      version=self.config.version,
                      payload=self.cron.ToYAML())
@@ -616,6 +673,28 @@ class DosEntryUpload(object):
                      app_id=self.config.application,
                      version=self.config.version,
                      payload=self.dos.ToYAML())
+
+
+class DefaultVersionSet(object):
+  """Provides facilities to set the default (serving) version."""
+
+  def __init__(self, server, config):
+    """Creates a new DefaultVersionSet.
+
+    Args:
+      server: The RPC server to use. Should be an instance of a subclass of
+        AbstractRpcServer.
+      config: The AppInfoExternal object derived from the app.yaml file.
+    """
+    self.server = server
+    self.config = config
+
+  def SetVersion(self):
+    """Sets the default version."""
+    StatusUpdate('Setting default version to %s.' % (self.config.version,))
+    self.server.Send('/api/appversion/setdefault',
+                     app_id=self.config.application,
+                     version=self.config.version)
 
 
 class IndexOperation(object):
@@ -778,7 +857,7 @@ class LogsRequester(object):
 
   def __init__(self, server, config, output_file,
                num_days, append, severity, end, vhost, include_vhost,
-               time_func=time.time):
+               include_all=None, time_func=time.time):
     """Constructor.
 
     Args:
@@ -792,6 +871,8 @@ class LogsRequester(object):
       end: date object representing last day of logs to return.
       vhost: The virtual host of log messages to get. None for all hosts.
       include_vhost: If true, the virtual host is included in log messages.
+      include_all: If true, we add to the log message everything we know
+        about the request.
       time_func: Method that return a timestamp representing now (for testing).
     """
     self.server = server
@@ -802,6 +883,7 @@ class LogsRequester(object):
     self.severity = severity
     self.vhost = vhost
     self.include_vhost = include_vhost
+    self.include_all = include_all
     self.version_id = self.config.version + '.1'
     self.sentinel = None
     self.write_mode = 'w'
@@ -887,6 +969,8 @@ class LogsRequester(object):
       kwds['vhost'] = str(self.vhost)
     if self.include_vhost is not None:
       kwds['include_vhost'] = str(self.include_vhost)
+    if self.include_all is not None:
+      kwds['include_all'] = str(self.include_all)
     response = self.server.Send('/api/request_logs', payload=None, **kwds)
     response = response.replace('\r', '\0')
     lines = response.splitlines()
@@ -1095,13 +1179,13 @@ class UploadBatcher(object):
     """Constructor.
 
     Args:
-      what: Either 'file' or 'blob' indicating what kind of objects
-        this batcher uploads.  Used in messages and URLs.
+      what: Either 'file' or 'blob' or 'errorblob' indicating what kind of
+        objects this batcher uploads.  Used in messages and URLs.
       app_id: The application ID.
       version: The application version string.
       server: The RPC server.
     """
-    assert what in ('file', 'blob'), repr(what)
+    assert what in ('file', 'blob', 'errorblob'), repr(what)
     self.what = what
     self.app_id = app_id
     self.version = version
@@ -1231,6 +1315,141 @@ def _Hash(content):
   return '%s_%s_%s_%s_%s' % (h[0:8], h[8:16], h[16:24], h[24:32], h[32:40])
 
 
+def EnsureDir(path):
+  """Makes sure that a directory exists at the given path.
+
+  If a directory already exists at that path, nothing is done.
+  Otherwise, try to create a directory at that path with os.makedirs.
+  If that fails, propagate the resulting OSError exception.
+
+  Args:
+    path: The path that you want to refer to a directory.
+  """
+  try:
+    os.makedirs(path)
+  except OSError, exc:
+    if not (exc.errno == errno.EEXIST and os.path.isdir(path)):
+      raise
+
+
+def DoDownloadApp(server, out_dir, app_id, app_version):
+  """Downloads the files associated with a particular app version.
+
+  Args:
+    server: The RPC server to use to download.
+    out_dir: The directory the files should be downloaded to.
+    app_id: The app ID of the app whose files we want to download.
+    app_version: The version number we want to download.  Can be:
+      - None: We'll download the latest default version.
+      - <major>: We'll download the latest minor version.
+      - <major>/<minor>: We'll download that exact version.
+  """
+
+  StatusUpdate('Fetching file list...')
+
+  url_args = {'app_id': app_id}
+  if app_version is not None:
+    url_args['version_match'] = app_version
+
+  result = server.Send('/api/files/list', **url_args)
+
+  StatusUpdate('Fetching files...')
+
+  lines = result.splitlines()
+
+  if len(lines) < 1:
+    logging.error('Invalid response from server: empty')
+    return
+
+  full_version = lines[0]
+  file_lines = lines[1:]
+
+  current_file_number = 0
+  num_files = len(file_lines)
+
+  num_errors = 0
+
+  for line in file_lines:
+    parts = line.split('|', 2)
+    if len(parts) != 3:
+      logging.error('Invalid response from server: expecting '
+                    '"<id>|<size>|<path>", found: "%s"\n', line)
+      return
+
+    current_file_number += 1
+
+    file_id, size_str, path = parts
+    try:
+      size = int(size_str)
+    except ValueError:
+      logging.error('Invalid file list entry from server: invalid size: '
+                    '"%s"', size_str)
+      return
+
+    StatusUpdate('[%d/%d] %s' % (current_file_number, num_files, path))
+
+    def TryGet():
+      try:
+        contents = server.Send('/api/files/get', app_id=app_id,
+                               version=full_version, id=file_id)
+        return True, contents
+      except urllib2.HTTPError, exc:
+        if exc.code == 503:
+          return False, exc
+        else:
+          raise
+
+    def PrintRetryMessage(exc, delay):
+      StatusUpdate('Server busy.  Will try again in %d seconds.' % delay)
+
+    success, contents = RetryWithBackoff(TryGet, PrintRetryMessage)
+    if not success:
+      logging.error('Unable to download file "%s".', path)
+      num_errors += 1
+      continue
+
+    if len(contents) != size:
+      logging.error('File "%s": server listed as %d bytes but served '
+                    '%d bytes.', path, size, len(contents))
+      num_errors += 1
+
+    full_path = os.path.join(out_dir, path)
+
+    if os.path.exists(full_path):
+      logging.error('Unable to create file "%s": path conflicts with '
+                    'an existing file or directory', path)
+      num_errors += 1
+      continue
+
+    full_dir = os.path.dirname(full_path)
+    try:
+      EnsureDir(full_dir)
+    except OSError, exc:
+      logging.error('Couldn\'t create directory "%s": %s', full_dir, exc)
+      num_errors += 1
+      continue
+
+    try:
+      out_file = open(full_path, 'wb')
+    except IOError, exc:
+      logging.error('Couldn\'t open file "%s": %s', full_path, exc)
+      num_errors += 1
+      continue
+
+    try:
+      try:
+        out_file.write(contents)
+      except IOError, exc:
+        logging.error('Couldn\'t write to file "%s": %s', full_path, exc)
+        num_errors += 1
+        continue
+    finally:
+      out_file.close()
+
+  if num_errors > 0:
+    logging.error('Number of errors: %d.  See output for details.', num_errors)
+
+
 class AppVersionUpload(object):
   """Provides facilities to upload a new appversion to the hosting service.
 
@@ -1259,7 +1478,9 @@ class AppVersionUpload(object):
     self.config = config
     self.app_id = self.config.application
     self.version = self.config.version
+
     self.files = {}
+
     self.in_transaction = False
     self.deployed = False
     self.batching = True
@@ -1267,6 +1488,8 @@ class AppVersionUpload(object):
                                       self.server)
     self.blob_batcher = UploadBatcher('blob', self.app_id, self.version,
                                       self.server)
+    self.errorblob_batcher = UploadBatcher('errorblob', self.app_id,
+                                           self.version, self.server)
 
   def AddFile(self, path, file_handle):
     """Adds the provided file to the list to be pushed to the server.
@@ -1307,11 +1530,21 @@ class AppVersionUpload(object):
 
     files_to_clone = []
     blobs_to_clone = []
+    errorblobs = {}
     for path, content_hash in self.files.iteritems():
+      match_found = False
+
       mime_type = GetMimeTypeIfStaticFile(self.config, path)
       if mime_type is not None:
         blobs_to_clone.append((path, content_hash, mime_type))
-      else:
+        match_found = True
+
+      (mime_type, error_code) = LookupErrorBlob(self.config, path)
+      if mime_type is not None:
+        errorblobs[path] = content_hash
+        match_found = True
+
+      if not match_found:
         files_to_clone.append((path, content_hash))
 
     files_to_upload = {}
@@ -1346,6 +1579,8 @@ class AppVersionUpload(object):
 
     logging.debug('Files to upload: %s', files_to_upload)
 
+    for (path, content_hash) in errorblobs.iteritems():
+      files_to_upload[path] = content_hash
     self.files = files_to_upload
     return sorted(files_to_upload.iterkeys())
 
@@ -1368,12 +1603,22 @@ class AppVersionUpload(object):
                      % path)
 
     del self.files[path]
+
+    match_found = False
     mime_type = GetMimeTypeIfStaticFile(self.config, path)
     payload = file_handle.read()
-    if mime_type is None:
-      self.file_batcher.AddToBatch(path, payload, mime_type)
-    else:
+    if mime_type is not None:
       self.blob_batcher.AddToBatch(path, payload, mime_type)
+      match_found = True
+
+    (mime_type, error_code) = LookupErrorBlob(self.config, path)
+    if mime_type is not None:
+      self.errorblob_batcher.AddToBatch(error_code, payload, mime_type)
+      match_found = True
+
+    if not match_found:
+      self.file_batcher.AddToBatch(path, payload, None)
+
 
   def Precompile(self):
     """Handle bytecode precompilation."""
@@ -1422,9 +1667,13 @@ class AppVersionUpload(object):
     if self.files:
       raise Exception('Not all required files have been uploaded.')
 
+    def PrintRetryMessage(none, delay):
+      StatusUpdate('Will check again in %s seconds.' % delay)
+
     try:
       self.Deploy()
-      if not RetryWithBackoff(1, 2, 60, 20, self.IsReady):
+      if not RetryWithBackoff(lambda: (self.IsReady(), None),
+                              PrintRetryMessage, 1, 2, 60, 20):
         logging.warning('Version still not ready to serve, aborting.')
         raise Exception('Version not ready.')
       self.StartServing()
@@ -1548,6 +1797,7 @@ class AppVersionUpload(object):
                          (num_files, len(missing_files)))
         self.file_batcher.Flush()
         self.blob_batcher.Flush()
+        self.errorblob_batcher.Flush()
         StatusUpdate('Uploaded %d files and blobs' % num_files)
 
       if (self.config.derived_file_type and
@@ -1937,11 +2187,12 @@ class AppCfgApp(object):
 
     return None
 
-  def _ParseAppYaml(self, basepath):
+  def _ParseAppYaml(self, basepath, includes=True):
     """Parses the app.yaml file.
 
     Args:
       basepath: the directory of the application.
+      includes: if True builtins and includes will be parsed.
 
     Returns:
       An AppInfoExternal object.
@@ -1953,7 +2204,10 @@ class AppCfgApp(object):
 
     fh = open(appyaml_filename, 'r')
     try:
-      appyaml = appinfo.LoadSingleAppInfo(fh)
+      if includes:
+        appyaml = appinfo_includes.Parse(fh)
+      else:
+        appyaml = appinfo.LoadSingleAppInfo(fh)
     finally:
       fh.close()
     orig_application = appyaml.application
@@ -2052,13 +2306,57 @@ class AppCfgApp(object):
     self.parser, unused_options = self._MakeSpecificParser(action)
     self._PrintHelpAndExit(exit_code=0)
 
+  def DownloadApp(self):
+    """Downloads the given app+version."""
+    if len(self.args) != 1:
+      self.parser.error('\"download_app\" expects one non-option argument, '
+          'found ' + str(len(self.args)) + '.')
+
+    out_dir = self.args[0]
+
+    app_id = self.options.app_id
+    if app_id is None:
+      self.parser.error('You must specify an app ID via -A or --application.')
+
+    app_version = self.options.version
+
+    if os.path.exists(out_dir):
+      if not os.path.isdir(out_dir):
+        self.parser.error('Cannot download to path "%s": '
+                          'there\'s a file in the way.' % out_dir)
+      elif len(os.listdir(out_dir)) > 0:
+        self.parser.error('Cannot download to path "%s": directory already '
+                          'exists and it isn\'t empty.' % out_dir)
+
+    rpc_server = self._GetRpcServer()
+
+    updatecheck = self.update_check_class(rpc_server, None)
+    updatecheck.CheckForUpdates()
+
+    DoDownloadApp(rpc_server, out_dir, app_id, app_version)
+
   def Update(self):
     """Updates and deploys a new appversion."""
     if len(self.args) != 1:
       self.parser.error('Expected a single <directory> argument.')
 
     basepath = self.args[0]
-    appyaml = self._ParseAppYaml(basepath)
+    appyaml = self._ParseAppYaml(basepath, includes=True)
+
+    if not appyaml.includes and (not appyaml.builtins or
+        appinfo.BuiltinHandler.ListToTuples(appyaml.builtins)
+        == [('default', 'on')]):
+      del appyaml.builtins
+      del appyaml.includes
+      del appinfo.AppInfoExternal.ATTRIBUTES['builtins']
+      del appinfo.AppInfoExternal.ATTRIBUTES['includes']
+
+    if self.options.precompilation:
+      if not appyaml.derived_file_type:
+        appyaml.derived_file_type = []
+      if appinfo.PYTHON_PRECOMPILED not in appyaml.derived_file_type:
+        appyaml.derived_file_type.append(appinfo.PYTHON_PRECOMPILED)
+
     rpc_server = self._GetRpcServer()
 
     updatecheck = self.update_check_class(rpc_server, appyaml)
@@ -2106,6 +2404,9 @@ class AppCfgApp(object):
     parser.add_option('-S', '--max_size', type='int', dest='max_size',
                       default=10485760, metavar='SIZE',
                       help='Maximum size of a file to upload.')
+    parser.add_option('--no_precompilation', action='store_false',
+                      dest='precompilation', default=True,
+                      help='Disable automatic Python precompilation.')
 
   def VacuumIndexes(self):
     """Deletes unused indexes."""
@@ -2203,6 +2504,17 @@ class AppCfgApp(object):
     appversion.in_transaction = True
     appversion.Rollback()
 
+  def SetDefaultVersion(self):
+    """Sets the default version."""
+    if len(self.args) != 1:
+      self.parser.error('Expected a single <directory> argument.')
+
+    basepath = self.args[0]
+    appyaml = self._ParseAppYaml(basepath)
+
+    version_setter = DefaultVersionSet(self._GetRpcServer(), appyaml)
+    version_setter.SetVersion()
+
   def RequestLogs(self):
     """Write request logs to a file."""
     if len(self.args) != 2:
@@ -2230,7 +2542,8 @@ class AppCfgApp(object):
                                    self.options.severity,
                                    end_date,
                                    self.options.vhost,
-                                   self.options.include_vhost)
+                                   self.options.include_vhost,
+                                   self.options.include_all)
     logs_requester.DownloadLogs()
 
   def _ParseEndDate(self, date, time_func=time.time):
@@ -2276,6 +2589,9 @@ class AppCfgApp(object):
     parser.add_option('--include_vhost', dest='include_vhost',
                       action='store_true', default=False,
                       help='Include virtual host in log messages.')
+    parser.add_option('--include_all', dest='include_all',
+                      action='store_true', default=None,
+                      help='Include everything in log messages.')
     parser.add_option('--end_date', dest='end_date',
                       action='store', default='',
                       help='End date (as YYYY-MM-DD) of period for log data. '
@@ -2349,7 +2665,11 @@ class AppCfgApp(object):
           if server == 'appengine.google.com':
             return 'http://%s.appspot.com%s' % (app_id, handler.url)
           else:
-            return 'http://%s%s' % (server, handler.url)
+            match = re.match(PREFIXED_BY_ADMIN_CONSOLE_RE, server)
+            if match:
+              return 'http://%s%s%s' % (app_id, match.group(1), handler.url)
+            else:
+              return 'http://%s%s' % (server, handler.url)
     return None
 
   def RunBulkloader(self, arg_dict):
@@ -2397,9 +2717,8 @@ class AppCfgApp(object):
       self.options.debug = True
 
   def _MakeLoaderArgs(self):
-    return dict([(arg_name, getattr(self.options, arg_name, None)) for
+    args = dict([(arg_name, getattr(self.options, arg_name, None)) for
                  arg_name in (
-                     'app_id',
                      'url',
                      'filename',
                      'batch_size',
@@ -2427,6 +2746,8 @@ class AppCfgApp(object):
                      'namespace',
                      'create_config',
                      )])
+    args['application'] = self.options.app_id
+    return args
 
   def PerformDownload(self, run_fn=None):
     """Performs a datastore download via the bulkloader.
@@ -2537,6 +2858,9 @@ class AppCfgApp(object):
     parser.add_option('--dry_run', action='store_true',
                       dest='dry_run', default=False,
                       help='Do not execute any remote_api calls')
+    parser.add_option('--namespace', type='string', dest='namespace',
+                      action='store', default='',
+                      help='Namespace to use when accessing datastore.')
 
   def _PerformUploadOptions(self, parser):
     """Adds 'upload_data' specific options to the 'parser' passed in.
@@ -2637,6 +2961,16 @@ in the app.yaml file at the top level of that directory.  appcfg.py
 will follow symlinks and recursively upload all files to the server.
 Temporary or source control files (e.g. foo~, .svn/*) will be skipped."""),
 
+      'download_app': Action(
+          function='DownloadApp',
+          usage='%prog [options] download_app -A app_id [ -V version ] '
+                '<out-dir>',
+          short_desc='Download a previously-uploaded app.',
+          long_desc="""
+Download a previously-uploaded app to the specified directory.  The app
+ID is specified by the \"-A\" option.  The optional version is specified
+by the \"-V\" option."""),
+
       'update_cron': Action(
           function='UpdateCron',
           usage='%prog [options] update_cron <directory>',
@@ -2735,6 +3069,15 @@ file as CSV or developer defined format."""),
           long_desc="""
 The 'create_bulkloader_config' command creates a bulkloader.yaml configuration
 template for use with upload_data or download_data."""),
+
+      'set_default_version': Action(
+          function='SetDefaultVersion',
+          usage='%prog [options] set_default_version <directory>',
+          short_desc='Set the default (serving) version.',
+          long_desc="""
+The 'set_default_version' command sets the default (serving) version of the app.
+Defaults to using the version specified in app.yaml; use the --version flag to
+override this."""),
 
 
 

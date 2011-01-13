@@ -228,7 +228,7 @@ class TransformerEntry(validation.Validated):
           'Both kind and model specified for transformer.')
 
     if self.model:
-      self.kind = self.model().kind()
+      self.kind = self.model.method.kind()
     else:
       if self.use_model_on_export:
         raise bulkloader_errors.InvalidConfiguration(

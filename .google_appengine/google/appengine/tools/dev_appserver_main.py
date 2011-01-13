@@ -71,6 +71,7 @@ Options:
 
 
 
+
 from google.appengine.tools import os_compat
 
 import getopt
@@ -102,6 +103,8 @@ ARG_AUTH_DOMAIN = 'auth_domain'
 ARG_CLEAR_DATASTORE = 'clear_datastore'
 ARG_BLOBSTORE_PATH = 'blobstore_path'
 ARG_DATASTORE_PATH = 'datastore_path'
+ARG_MATCHER_PATH = 'matcher_path'
+ARG_CLEAR_MATCHER = 'clear_matcher'
 ARG_USE_SQLITE = 'use_sqlite'
 ARG_DEBUG_IMPORTS = 'debug_imports'
 ARG_ENABLE_SENDMAIL = 'enable_sendmail'
@@ -116,6 +119,10 @@ ARG_SMTP_HOST = 'smtp_host'
 ARG_SMTP_PASSWORD = 'smtp_password'
 ARG_SMTP_PORT = 'smtp_port'
 ARG_SMTP_USER = 'smtp_user'
+ARG_MYSQL_HOST = 'mysql_host'
+ARG_MYSQL_PORT = 'mysql_port'
+ARG_MYSQL_USER = 'mysql_user'
+ARG_MYSQL_PASSWORD = 'mysql_password'
 ARG_STATIC_CACHING = 'static_caching'
 ARG_TEMPLATE_DIR = 'template_dir'
 ARG_DISABLE_TASK_RUNNING = 'disable_task_running'
@@ -137,17 +144,25 @@ DEFAULT_ARGS = {
                                    'dev_appserver.blobstore'),
   ARG_DATASTORE_PATH: os.path.join(tempfile.gettempdir(),
                                    'dev_appserver.datastore'),
+  ARG_MATCHER_PATH: os.path.join(tempfile.gettempdir(),
+                                 'dev_appserver.matcher'),
   ARG_USE_SQLITE: False,
   ARG_HISTORY_PATH: os.path.join(tempfile.gettempdir(),
                                  'dev_appserver.datastore.history'),
   ARG_LOGIN_URL: '/_ah/login',
   ARG_CLEAR_DATASTORE: False,
+  ARG_CLEAR_MATCHER: False,
   ARG_REQUIRE_INDEXES: False,
   ARG_TEMPLATE_DIR: os.path.join(SDK_PATH, 'templates'),
   ARG_SMTP_HOST: '',
   ARG_SMTP_PORT: 25,
   ARG_SMTP_USER: '',
   ARG_SMTP_PASSWORD: '',
+
+
+
+
+
   ARG_ENABLE_SENDMAIL: False,
   ARG_SHOW_MAIL_BODY: False,
   ARG_AUTH_DOMAIN: 'gmail.com',
@@ -211,6 +226,10 @@ def ParseArguments(argv):
         'show_mail_body',
         'help',
         'history_path=',
+        'mysql_host=',
+        'mysql_port=',
+        'mysql_user=',
+        'mysql_password=',
         'port=',
         'require_indexes',
         'smtp_host=',
@@ -251,6 +270,9 @@ def ParseArguments(argv):
     if option == '--datastore_path':
       option_dict[ARG_DATASTORE_PATH] = os.path.abspath(value)
 
+    if option == '--matcher_path':
+      option_dict[ARG_MATCHER_PATH] = os.path.abspath(value)
+
     if option == '--use_sqlite':
       option_dict[ARG_USE_SQLITE] = True
 
@@ -260,20 +282,29 @@ def ParseArguments(argv):
     if option in ('-c', '--clear_datastore'):
       option_dict[ARG_CLEAR_DATASTORE] = True
 
+    if option == '--clear_matcher':
+      option_dict[ARG_CLEAR_MATCHER] = True
+
     if option == '--require_indexes':
       option_dict[ARG_REQUIRE_INDEXES] = True
+
+    if option == '--mysql_host':
+      option_dict[ARG_MYSQL_HOST] = value
+
+    if option == '--mysql_port':
+      option_dict[ARG_MYSQL_PORT] = _ParsePort(value, '--mysql_port')
+
+    if option == '--mysql_user':
+      option_dict[ARG_MYSQL_USER] = value
+
+    if option == '--mysql_password':
+      option_dict[ARG_MYSQL_PASSWORD] = value
 
     if option == '--smtp_host':
       option_dict[ARG_SMTP_HOST] = value
 
     if option == '--smtp_port':
-      try:
-        option_dict[ARG_SMTP_PORT] = int(value)
-        if not (65535 > option_dict[ARG_SMTP_PORT] > 0):
-          raise ValueError
-      except ValueError:
-        print >>sys.stderr, 'Invalid value supplied for SMTP port'
-        PrintUsageExit(1)
+      option_dict[ARG_SMTP_PORT] = _ParsePort(value, '--smtp_port')
 
     if option == '--smtp_user':
       option_dict[ARG_SMTP_USER] = value
@@ -326,6 +357,28 @@ def ParseArguments(argv):
   return args, option_dict
 
 
+def _ParsePort(port, description):
+  """Parses a port number from a string.
+
+  Args:
+    port: string
+    description: string to use in error messages.
+
+  Returns: integer between 0 and 65535
+
+  Raises:
+    ValueError if port is not a valid port number.
+  """
+  try:
+    port = int(port)
+    if not (65535 > port > 0):
+      raise ValueError
+    return port
+  except ValueError:
+    print >>sys.stderr, 'Invalid value %s supplied for %s' % (port, description)
+    PrintUsageExit(1)
+
+
 def MakeRpcServer(option_dict):
   """Create a new HttpRpcServer.
 
@@ -376,6 +429,7 @@ def main(argv):
   port = option_dict[ARG_PORT]
   blobstore_path = option_dict[ARG_BLOBSTORE_PATH]
   datastore_path = option_dict[ARG_DATASTORE_PATH]
+  matcher_path = option_dict[ARG_MATCHER_PATH]
   login_url = option_dict[ARG_LOGIN_URL]
   template_dir = option_dict[ARG_TEMPLATE_DIR]
   serve_address = option_dict[ARG_ADDRESS]

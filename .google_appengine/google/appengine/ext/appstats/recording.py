@@ -769,12 +769,12 @@ def load_full_proto(timestamp):
   return full
 
 
-class AppStatsDjangoMiddleware(object):
+class AppstatsDjangoMiddleware(object):
   """Django Middleware to install the instrumentation.
 
   To start recording your app's RPC statistics, add
 
-    'google.appengine.ext.appstats.recording.AppStatsDjangoMiddleware',
+    'google.appengine.ext.appstats.recording.AppstatsDjangoMiddleware',
 
   to the MIDDLEWARE_CLASSES entry in your Django settings.py file.
   It's best to insert it in front of any other middleware classes,
@@ -800,6 +800,9 @@ class AppStatsDjangoMiddleware(object):
       None)
     end_recording(response.status_code, firepython_set_extension_data)
     return response
+
+
+AppStatsDjangoMiddleware =  AppstatsDjangoMiddleware
 
 
 def appstats_wsgi_middleware(app):

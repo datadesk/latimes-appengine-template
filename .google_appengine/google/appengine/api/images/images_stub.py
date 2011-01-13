@@ -41,6 +41,9 @@ from google.appengine.api.images import images_service_pb
 from google.appengine.runtime import apiproxy_errors
 
 
+MAX_REQUEST_SIZE = 32 << 20
+
+
 def _ArgbToRgbaTuple(argb):
   """Convert from a single ARGB value to a tuple containing RGBA.
 
@@ -81,13 +84,17 @@ def _BackendPremultiplication(color):
 class ImagesServiceStub(apiproxy_stub.APIProxyStub):
   """Stub version of images API to be used with the dev_appserver."""
 
-  def __init__(self, service_name="images"):
+  def __init__(self, service_name="images", host_prefix=""):
     """Preloads PIL to load all modules in the unhardened environment.
 
     Args:
       service_name: Service name expected for all calls.
+      host_prefix: the URL prefix (protocol://host:port) to preprend to
+        image urls on a call to GetUrlBase.
     """
-    super(ImagesServiceStub, self).__init__(service_name)
+    super(ImagesServiceStub, self).__init__(service_name,
+                                            max_request_size=MAX_REQUEST_SIZE)
+    self._host_prefix = host_prefix
     Image.init()
 
   def _Dynamic_Composite(self, request, response):
@@ -193,6 +200,15 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
     response_value = self._EncodeImage(new_image, request.output())
     response.mutable_image().set_content(response_value)
 
+  def _Dynamic_GetUrlBase(self, request, response):
+    """Trivial implementation of ImagesService::GetUrlBase.
+
+    Args:
+      request: ImagesGetUrlBaseRequest, contains a blobkey to an image
+      response: ImagesGetUrlBaseResponse, contains a url to serve the image
+    """
+    response.set_url("%s/_ah/img/%s" % (self._host_prefix, request.blob_key()))
+
   def _EncodeImage(self, image, output_encoding):
     """Encode the given image and return it in string form.
 
@@ -271,7 +287,9 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
           images_service_pb.ImagesServiceError.BAD_IMAGE_DATA)
 
   def _OpenBlob(self, blob_key):
-    key = datastore_types.Key.from_path(blobstore.BLOB_INFO_KIND, blob_key)
+    key = datastore_types.Key.from_path(blobstore.BLOB_INFO_KIND,
+                                        blob_key,
+                                        namespace='')
     try:
       datastore.Get(key)
     except datastore_errors.Error:

@@ -1,23 +1,11 @@
+'''
+Reference tzinfo implementations from the Python docs.
+Used for testing against as they are only correct for the years
+1987 to 2006. Do not use these for real code.
+'''
+
 from datetime import tzinfo, timedelta, datetime
-
-ZERO = timedelta(0)
-HOUR = timedelta(hours=1)
-
-# A UTC class.
-
-class UTC(tzinfo):
-    """UTC"""
-
-    def utcoffset(self, dt):
-        return ZERO
-
-    def tzname(self, dt):
-        return "UTC"
-
-    def dst(self, dt):
-        return ZERO
-
-utc = UTC()
+from pytz import utc, UTC, HOUR, ZERO
 
 # A class building tzinfo objects for fixed-offset time zones.
 # Note that FixedOffset(0, "UTC") is a different way to build a
@@ -78,7 +66,6 @@ class LocalTimezone(tzinfo):
 
 Local = LocalTimezone()
 
-
 # A complete implementation of current DST rules for major US time zones.
 
 def first_sunday_on_or_after(dt):
@@ -137,3 +124,4 @@ Eastern  = USTimeZone(-5, "Eastern",  "EST", "EDT")
 Central  = USTimeZone(-6, "Central",  "CST", "CDT")
 Mountain = USTimeZone(-7, "Mountain", "MST", "MDT")
 Pacific  = USTimeZone(-8, "Pacific",  "PST", "PDT")
+

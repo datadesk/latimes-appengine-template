@@ -22,6 +22,10 @@ import dummy_thread as thread
 __pychecker__ = """maxreturns=0 maxbranches=0 no-callinit
                    unusednames=printElemNumber,debug_strs no-special"""
 
+from google.appengine.api.api_base_pb import *
+import google.appengine.api.api_base_pb
+from google.appengine.api.channel.channel_service_pb import *
+import google.appengine.api.channel.channel_service_pb
 class XmppServiceError(ProtocolBuffer.ProtocolMessage):
 
   UNSPECIFIED_ERROR =    1
@@ -29,6 +33,8 @@ class XmppServiceError(ProtocolBuffer.ProtocolMessage):
   NO_BODY      =    3
   INVALID_XML  =    4
   INVALID_TYPE =    5
+  INVALID_SHOW =    6
+  EXCEEDED_MAX_SIZE =    7
 
   _ErrorCode_NAMES = {
     1: "UNSPECIFIED_ERROR",
@@ -36,6 +42,8 @@ class XmppServiceError(ProtocolBuffer.ProtocolMessage):
     3: "NO_BODY",
     4: "INVALID_XML",
     5: "INVALID_TYPE",
+    6: "INVALID_SHOW",
+    7: "EXCEEDED_MAX_SIZE",
   }
 
   def ErrorCode_Name(cls, x): return cls._ErrorCode_NAMES.get(x, "")
@@ -654,6 +662,264 @@ class XmppMessageResponse(ProtocolBuffer.ProtocolMessage):
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
+class XmppSendPresenceRequest(ProtocolBuffer.ProtocolMessage):
+  has_jid_ = 0
+  jid_ = ""
+  has_type_ = 0
+  type_ = ""
+  has_show_ = 0
+  show_ = ""
+  has_status_ = 0
+  status_ = ""
+  has_from_jid_ = 0
+  from_jid_ = ""
+
+  def __init__(self, contents=None):
+    if contents is not None: self.MergeFromString(contents)
+
+  def jid(self): return self.jid_
+
+  def set_jid(self, x):
+    self.has_jid_ = 1
+    self.jid_ = x
+
+  def clear_jid(self):
+    if self.has_jid_:
+      self.has_jid_ = 0
+      self.jid_ = ""
+
+  def has_jid(self): return self.has_jid_
+
+  def type(self): return self.type_
+
+  def set_type(self, x):
+    self.has_type_ = 1
+    self.type_ = x
+
+  def clear_type(self):
+    if self.has_type_:
+      self.has_type_ = 0
+      self.type_ = ""
+
+  def has_type(self): return self.has_type_
+
+  def show(self): return self.show_
+
+  def set_show(self, x):
+    self.has_show_ = 1
+    self.show_ = x
+
+  def clear_show(self):
+    if self.has_show_:
+      self.has_show_ = 0
+      self.show_ = ""
+
+  def has_show(self): return self.has_show_
+
+  def status(self): return self.status_
+
+  def set_status(self, x):
+    self.has_status_ = 1
+    self.status_ = x
+
+  def clear_status(self):
+    if self.has_status_:
+      self.has_status_ = 0
+      self.status_ = ""
+
+  def has_status(self): return self.has_status_
+
+  def from_jid(self): return self.from_jid_
+
+  def set_from_jid(self, x):
+    self.has_from_jid_ = 1
+    self.from_jid_ = x
+
+  def clear_from_jid(self):
+    if self.has_from_jid_:
+      self.has_from_jid_ = 0
+      self.from_jid_ = ""
+
+  def has_from_jid(self): return self.has_from_jid_
+
+
+  def MergeFrom(self, x):
+    assert x is not self
+    if (x.has_jid()): self.set_jid(x.jid())
+    if (x.has_type()): self.set_type(x.type())
+    if (x.has_show()): self.set_show(x.show())
+    if (x.has_status()): self.set_status(x.status())
+    if (x.has_from_jid()): self.set_from_jid(x.from_jid())
+
+  def Equals(self, x):
+    if x is self: return 1
+    if self.has_jid_ != x.has_jid_: return 0
+    if self.has_jid_ and self.jid_ != x.jid_: return 0
+    if self.has_type_ != x.has_type_: return 0
+    if self.has_type_ and self.type_ != x.type_: return 0
+    if self.has_show_ != x.has_show_: return 0
+    if self.has_show_ and self.show_ != x.show_: return 0
+    if self.has_status_ != x.has_status_: return 0
+    if self.has_status_ and self.status_ != x.status_: return 0
+    if self.has_from_jid_ != x.has_from_jid_: return 0
+    if self.has_from_jid_ and self.from_jid_ != x.from_jid_: return 0
+    return 1
+
+  def IsInitialized(self, debug_strs=None):
+    initialized = 1
+    if (not self.has_jid_):
+      initialized = 0
+      if debug_strs is not None:
+        debug_strs.append('Required field: jid not set.')
+    return initialized
+
+  def ByteSize(self):
+    n = 0
+    n += self.lengthString(len(self.jid_))
+    if (self.has_type_): n += 1 + self.lengthString(len(self.type_))
+    if (self.has_show_): n += 1 + self.lengthString(len(self.show_))
+    if (self.has_status_): n += 1 + self.lengthString(len(self.status_))
+    if (self.has_from_jid_): n += 1 + self.lengthString(len(self.from_jid_))
+    return n + 1
+
+  def Clear(self):
+    self.clear_jid()
+    self.clear_type()
+    self.clear_show()
+    self.clear_status()
+    self.clear_from_jid()
+
+  def OutputUnchecked(self, out):
+    out.putVarInt32(10)
+    out.putPrefixedString(self.jid_)
+    if (self.has_type_):
+      out.putVarInt32(18)
+      out.putPrefixedString(self.type_)
+    if (self.has_show_):
+      out.putVarInt32(26)
+      out.putPrefixedString(self.show_)
+    if (self.has_status_):
+      out.putVarInt32(34)
+      out.putPrefixedString(self.status_)
+    if (self.has_from_jid_):
+      out.putVarInt32(42)
+      out.putPrefixedString(self.from_jid_)
+
+  def TryMerge(self, d):
+    while d.avail() > 0:
+      tt = d.getVarInt32()
+      if tt == 10:
+        self.set_jid(d.getPrefixedString())
+        continue
+      if tt == 18:
+        self.set_type(d.getPrefixedString())
+        continue
+      if tt == 26:
+        self.set_show(d.getPrefixedString())
+        continue
+      if tt == 34:
+        self.set_status(d.getPrefixedString())
+        continue
+      if tt == 42:
+        self.set_from_jid(d.getPrefixedString())
+        continue
+      if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
+      d.skipData(tt)
+
+
+  def __str__(self, prefix="", printElemNumber=0):
+    res=""
+    if self.has_jid_: res+=prefix+("jid: %s\n" % self.DebugFormatString(self.jid_))
+    if self.has_type_: res+=prefix+("type: %s\n" % self.DebugFormatString(self.type_))
+    if self.has_show_: res+=prefix+("show: %s\n" % self.DebugFormatString(self.show_))
+    if self.has_status_: res+=prefix+("status: %s\n" % self.DebugFormatString(self.status_))
+    if self.has_from_jid_: res+=prefix+("from_jid: %s\n" % self.DebugFormatString(self.from_jid_))
+    return res
+
+
+  def _BuildTagLookupTable(sparse, maxtag, default=None):
+    return tuple([sparse.get(i, default) for i in xrange(0, 1+maxtag)])
+
+  kjid = 1
+  ktype = 2
+  kshow = 3
+  kstatus = 4
+  kfrom_jid = 5
+
+  _TEXT = _BuildTagLookupTable({
+    0: "ErrorCode",
+    1: "jid",
+    2: "type",
+    3: "show",
+    4: "status",
+    5: "from_jid",
+  }, 5)
+
+  _TYPES = _BuildTagLookupTable({
+    0: ProtocolBuffer.Encoder.NUMERIC,
+    1: ProtocolBuffer.Encoder.STRING,
+    2: ProtocolBuffer.Encoder.STRING,
+    3: ProtocolBuffer.Encoder.STRING,
+    4: ProtocolBuffer.Encoder.STRING,
+    5: ProtocolBuffer.Encoder.STRING,
+  }, 5, ProtocolBuffer.Encoder.MAX_TYPE)
+
+  _STYLE = """"""
+  _STYLE_CONTENT_TYPE = """"""
+class XmppSendPresenceResponse(ProtocolBuffer.ProtocolMessage):
+
+  def __init__(self, contents=None):
+    pass
+    if contents is not None: self.MergeFromString(contents)
+
+
+  def MergeFrom(self, x):
+    assert x is not self
+
+  def Equals(self, x):
+    if x is self: return 1
+    return 1
+
+  def IsInitialized(self, debug_strs=None):
+    initialized = 1
+    return initialized
+
+  def ByteSize(self):
+    n = 0
+    return n + 0
+
+  def Clear(self):
+    pass
+
+  def OutputUnchecked(self, out):
+    pass
+
+  def TryMerge(self, d):
+    while d.avail() > 0:
+      tt = d.getVarInt32()
+      if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
+      d.skipData(tt)
+
+
+  def __str__(self, prefix="", printElemNumber=0):
+    res=""
+    return res
+
+
+  def _BuildTagLookupTable(sparse, maxtag, default=None):
+    return tuple([sparse.get(i, default) for i in xrange(0, 1+maxtag)])
+
+
+  _TEXT = _BuildTagLookupTable({
+    0: "ErrorCode",
+  }, 0)
+
+  _TYPES = _BuildTagLookupTable({
+    0: ProtocolBuffer.Encoder.NUMERIC,
+  }, 0, ProtocolBuffer.Encoder.MAX_TYPE)
+
+  _STYLE = """"""
+  _STYLE_CONTENT_TYPE = """"""
 class XmppInviteRequest(ProtocolBuffer.ProtocolMessage):
   has_jid_ = 0
   jid_ = ""
@@ -823,4 +1089,4 @@ class XmppInviteResponse(ProtocolBuffer.ProtocolMessage):
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
 
-__all__ = ['XmppServiceError','PresenceRequest','PresenceResponse','XmppMessageRequest','XmppMessageResponse','XmppInviteRequest','XmppInviteResponse']
+__all__ = ['XmppServiceError','PresenceRequest','PresenceResponse','XmppMessageRequest','XmppMessageResponse','XmppSendPresenceRequest','XmppSendPresenceResponse','XmppInviteRequest','XmppInviteResponse']

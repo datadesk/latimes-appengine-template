@@ -68,6 +68,16 @@
   <form action="{{ request.path }}" method="post" onsubmit="return clearHints(this)">
     <div><input type="hidden" name="next" value="{{ next }}"/></div>
     <table class="form">
+      {% if key %}
+        {% if namespace %}
+          <tr>
+            <td class="name">
+              <span class="field_name">Namespace</span>
+            </td>
+            <td class="value">{{ namespace|escape }}</td>
+          </tr>
+        {% endif %}
+      {% endif %}
       <tr>
         <td class="name">Entity Kind</td>
         <td class="value text">

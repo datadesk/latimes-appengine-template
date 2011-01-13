@@ -93,6 +93,8 @@ class MemcacheServiceError(ProtocolBuffer.ProtocolMessage):
 class MemcacheGetRequest(ProtocolBuffer.ProtocolMessage):
   has_name_space_ = 0
   name_space_ = ""
+  has_for_cas_ = 0
+  for_cas_ = 0
 
   def __init__(self, contents=None):
     self.key_ = []
@@ -126,11 +128,25 @@ class MemcacheGetRequest(ProtocolBuffer.ProtocolMessage):
 
   def has_name_space(self): return self.has_name_space_
 
+  def for_cas(self): return self.for_cas_
+
+  def set_for_cas(self, x):
+    self.has_for_cas_ = 1
+    self.for_cas_ = x
+
+  def clear_for_cas(self):
+    if self.has_for_cas_:
+      self.has_for_cas_ = 0
+      self.for_cas_ = 0
+
+  def has_for_cas(self): return self.has_for_cas_
+
 
   def MergeFrom(self, x):
     assert x is not self
     for i in xrange(x.key_size()): self.add_key(x.key(i))
     if (x.has_name_space()): self.set_name_space(x.name_space())
+    if (x.has_for_cas()): self.set_for_cas(x.for_cas())
 
   def Equals(self, x):
     if x is self: return 1
@@ -139,6 +155,8 @@ class MemcacheGetRequest(ProtocolBuffer.ProtocolMessage):
       if e1 != e2: return 0
     if self.has_name_space_ != x.has_name_space_: return 0
     if self.has_name_space_ and self.name_space_ != x.name_space_: return 0
+    if self.has_for_cas_ != x.has_for_cas_: return 0
+    if self.has_for_cas_ and self.for_cas_ != x.for_cas_: return 0
     return 1
 
   def IsInitialized(self, debug_strs=None):
@@ -150,11 +168,13 @@ class MemcacheGetRequest(ProtocolBuffer.ProtocolMessage):
     n += 1 * len(self.key_)
     for i in xrange(len(self.key_)): n += self.lengthString(len(self.key_[i]))
     if (self.has_name_space_): n += 1 + self.lengthString(len(self.name_space_))
+    if (self.has_for_cas_): n += 2
     return n + 0
 
   def Clear(self):
     self.clear_key()
     self.clear_name_space()
+    self.clear_for_cas()
 
   def OutputUnchecked(self, out):
     for i in xrange(len(self.key_)):
@@ -163,6 +183,9 @@ class MemcacheGetRequest(ProtocolBuffer.ProtocolMessage):
     if (self.has_name_space_):
       out.putVarInt32(18)
       out.putPrefixedString(self.name_space_)
+    if (self.has_for_cas_):
+      out.putVarInt32(32)
+      out.putBoolean(self.for_cas_)
 
   def TryMerge(self, d):
     while d.avail() > 0:
@@ -172,6 +195,9 @@ class MemcacheGetRequest(ProtocolBuffer.ProtocolMessage):
         continue
       if tt == 18:
         self.set_name_space(d.getPrefixedString())
+        continue
+      if tt == 32:
+        self.set_for_cas(d.getBoolean())
         continue
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
@@ -186,6 +212,7 @@ class MemcacheGetRequest(ProtocolBuffer.ProtocolMessage):
       res+=prefix+("key%s: %s\n" % (elm, self.DebugFormatString(e)))
       cnt+=1
     if self.has_name_space_: res+=prefix+("name_space: %s\n" % self.DebugFormatString(self.name_space_))
+    if self.has_for_cas_: res+=prefix+("for_cas: %s\n" % self.DebugFormatBool(self.for_cas_))
     return res
 
 
@@ -194,18 +221,21 @@ class MemcacheGetRequest(ProtocolBuffer.ProtocolMessage):
 
   kkey = 1
   kname_space = 2
+  kfor_cas = 4
 
   _TEXT = _BuildTagLookupTable({
     0: "ErrorCode",
     1: "key",
     2: "name_space",
-  }, 2)
+    4: "for_cas",
+  }, 4)
 
   _TYPES = _BuildTagLookupTable({
     0: ProtocolBuffer.Encoder.NUMERIC,
     1: ProtocolBuffer.Encoder.STRING,
     2: ProtocolBuffer.Encoder.STRING,
-  }, 2, ProtocolBuffer.Encoder.MAX_TYPE)
+    4: ProtocolBuffer.Encoder.NUMERIC,
+  }, 4, ProtocolBuffer.Encoder.MAX_TYPE)
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -216,6 +246,10 @@ class MemcacheGetResponse_Item(ProtocolBuffer.ProtocolMessage):
   value_ = ""
   has_flags_ = 0
   flags_ = 0
+  has_cas_id_ = 0
+  cas_id_ = 0
+  has_expires_in_seconds_ = 0
+  expires_in_seconds_ = 0
 
   def __init__(self, contents=None):
     if contents is not None: self.MergeFromString(contents)
@@ -259,12 +293,40 @@ class MemcacheGetResponse_Item(ProtocolBuffer.ProtocolMessage):
 
   def has_flags(self): return self.has_flags_
 
+  def cas_id(self): return self.cas_id_
+
+  def set_cas_id(self, x):
+    self.has_cas_id_ = 1
+    self.cas_id_ = x
+
+  def clear_cas_id(self):
+    if self.has_cas_id_:
+      self.has_cas_id_ = 0
+      self.cas_id_ = 0
+
+  def has_cas_id(self): return self.has_cas_id_
+
+  def expires_in_seconds(self): return self.expires_in_seconds_
+
+  def set_expires_in_seconds(self, x):
+    self.has_expires_in_seconds_ = 1
+    self.expires_in_seconds_ = x
+
+  def clear_expires_in_seconds(self):
+    if self.has_expires_in_seconds_:
+      self.has_expires_in_seconds_ = 0
+      self.expires_in_seconds_ = 0
+
+  def has_expires_in_seconds(self): return self.has_expires_in_seconds_
+
 
   def MergeFrom(self, x):
     assert x is not self
     if (x.has_key()): self.set_key(x.key())
     if (x.has_value()): self.set_value(x.value())
     if (x.has_flags()): self.set_flags(x.flags())
+    if (x.has_cas_id()): self.set_cas_id(x.cas_id())
+    if (x.has_expires_in_seconds()): self.set_expires_in_seconds(x.expires_in_seconds())
 
   def Equals(self, x):
     if x is self: return 1
@@ -274,6 +336,10 @@ class MemcacheGetResponse_Item(ProtocolBuffer.ProtocolMessage):
     if self.has_value_ and self.value_ != x.value_: return 0
     if self.has_flags_ != x.has_flags_: return 0
     if self.has_flags_ and self.flags_ != x.flags_: return 0
+    if self.has_cas_id_ != x.has_cas_id_: return 0
+    if self.has_cas_id_ and self.cas_id_ != x.cas_id_: return 0
+    if self.has_expires_in_seconds_ != x.has_expires_in_seconds_: return 0
+    if self.has_expires_in_seconds_ and self.expires_in_seconds_ != x.expires_in_seconds_: return 0
     return 1
 
   def IsInitialized(self, debug_strs=None):
@@ -293,12 +359,16 @@ class MemcacheGetResponse_Item(ProtocolBuffer.ProtocolMessage):
     n += self.lengthString(len(self.key_))
     n += self.lengthString(len(self.value_))
     if (self.has_flags_): n += 5
+    if (self.has_cas_id_): n += 9
+    if (self.has_expires_in_seconds_): n += 1 + self.lengthVarInt64(self.expires_in_seconds_)
     return n + 2
 
   def Clear(self):
     self.clear_key()
     self.clear_value()
     self.clear_flags()
+    self.clear_cas_id()
+    self.clear_expires_in_seconds()
 
   def OutputUnchecked(self, out):
     out.putVarInt32(18)
@@ -308,6 +378,12 @@ class MemcacheGetResponse_Item(ProtocolBuffer.ProtocolMessage):
     if (self.has_flags_):
       out.putVarInt32(37)
       out.put32(self.flags_)
+    if (self.has_cas_id_):
+      out.putVarInt32(41)
+      out.put64(self.cas_id_)
+    if (self.has_expires_in_seconds_):
+      out.putVarInt32(48)
+      out.putVarInt32(self.expires_in_seconds_)
 
   def TryMerge(self, d):
     while 1:
@@ -322,6 +398,12 @@ class MemcacheGetResponse_Item(ProtocolBuffer.ProtocolMessage):
       if tt == 37:
         self.set_flags(d.get32())
         continue
+      if tt == 41:
+        self.set_cas_id(d.get64())
+        continue
+      if tt == 48:
+        self.set_expires_in_seconds(d.getVarInt32())
+        continue
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -331,6 +413,8 @@ class MemcacheGetResponse_Item(ProtocolBuffer.ProtocolMessage):
     if self.has_key_: res+=prefix+("key: %s\n" % self.DebugFormatString(self.key_))
     if self.has_value_: res+=prefix+("value: %s\n" % self.DebugFormatString(self.value_))
     if self.has_flags_: res+=prefix+("flags: %s\n" % self.DebugFormatFixed32(self.flags_))
+    if self.has_cas_id_: res+=prefix+("cas_id: %s\n" % self.DebugFormatFixed64(self.cas_id_))
+    if self.has_expires_in_seconds_: res+=prefix+("expires_in_seconds: %s\n" % self.DebugFormatInt32(self.expires_in_seconds_))
     return res
 
 class MemcacheGetResponse(ProtocolBuffer.ProtocolMessage):
@@ -418,6 +502,8 @@ class MemcacheGetResponse(ProtocolBuffer.ProtocolMessage):
   kItemkey = 2
   kItemvalue = 3
   kItemflags = 4
+  kItemcas_id = 5
+  kItemexpires_in_seconds = 6
 
   _TEXT = _BuildTagLookupTable({
     0: "ErrorCode",
@@ -425,7 +511,9 @@ class MemcacheGetResponse(ProtocolBuffer.ProtocolMessage):
     2: "key",
     3: "value",
     4: "flags",
-  }, 4)
+    5: "cas_id",
+    6: "expires_in_seconds",
+  }, 6)
 
   _TYPES = _BuildTagLookupTable({
     0: ProtocolBuffer.Encoder.NUMERIC,
@@ -433,7 +521,9 @@ class MemcacheGetResponse(ProtocolBuffer.ProtocolMessage):
     2: ProtocolBuffer.Encoder.STRING,
     3: ProtocolBuffer.Encoder.STRING,
     4: ProtocolBuffer.Encoder.FLOAT,
-  }, 4, ProtocolBuffer.Encoder.MAX_TYPE)
+    5: ProtocolBuffer.Encoder.DOUBLE,
+    6: ProtocolBuffer.Encoder.NUMERIC,
+  }, 6, ProtocolBuffer.Encoder.MAX_TYPE)
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -448,6 +538,10 @@ class MemcacheSetRequest_Item(ProtocolBuffer.ProtocolMessage):
   set_policy_ = 1
   has_expiration_time_ = 0
   expiration_time_ = 0
+  has_cas_id_ = 0
+  cas_id_ = 0
+  has_for_cas_ = 0
+  for_cas_ = 0
 
   def __init__(self, contents=None):
     if contents is not None: self.MergeFromString(contents)
@@ -517,6 +611,32 @@ class MemcacheSetRequest_Item(ProtocolBuffer.ProtocolMessage):
 
   def has_expiration_time(self): return self.has_expiration_time_
 
+  def cas_id(self): return self.cas_id_
+
+  def set_cas_id(self, x):
+    self.has_cas_id_ = 1
+    self.cas_id_ = x
+
+  def clear_cas_id(self):
+    if self.has_cas_id_:
+      self.has_cas_id_ = 0
+      self.cas_id_ = 0
+
+  def has_cas_id(self): return self.has_cas_id_
+
+  def for_cas(self): return self.for_cas_
+
+  def set_for_cas(self, x):
+    self.has_for_cas_ = 1
+    self.for_cas_ = x
+
+  def clear_for_cas(self):
+    if self.has_for_cas_:
+      self.has_for_cas_ = 0
+      self.for_cas_ = 0
+
+  def has_for_cas(self): return self.has_for_cas_
+
 
   def MergeFrom(self, x):
     assert x is not self
@@ -525,6 +645,8 @@ class MemcacheSetRequest_Item(ProtocolBuffer.ProtocolMessage):
     if (x.has_flags()): self.set_flags(x.flags())
     if (x.has_set_policy()): self.set_set_policy(x.set_policy())
     if (x.has_expiration_time()): self.set_expiration_time(x.expiration_time())
+    if (x.has_cas_id()): self.set_cas_id(x.cas_id())
+    if (x.has_for_cas()): self.set_for_cas(x.for_cas())
 
   def Equals(self, x):
     if x is self: return 1
@@ -538,6 +660,10 @@ class MemcacheSetRequest_Item(ProtocolBuffer.ProtocolMessage):
     if self.has_set_policy_ and self.set_policy_ != x.set_policy_: return 0
     if self.has_expiration_time_ != x.has_expiration_time_: return 0
     if self.has_expiration_time_ and self.expiration_time_ != x.expiration_time_: return 0
+    if self.has_cas_id_ != x.has_cas_id_: return 0
+    if self.has_cas_id_ and self.cas_id_ != x.cas_id_: return 0
+    if self.has_for_cas_ != x.has_for_cas_: return 0
+    if self.has_for_cas_ and self.for_cas_ != x.for_cas_: return 0
     return 1
 
   def IsInitialized(self, debug_strs=None):
@@ -559,6 +685,8 @@ class MemcacheSetRequest_Item(ProtocolBuffer.ProtocolMessage):
     if (self.has_flags_): n += 5
     if (self.has_set_policy_): n += 1 + self.lengthVarInt64(self.set_policy_)
     if (self.has_expiration_time_): n += 5
+    if (self.has_cas_id_): n += 9
+    if (self.has_for_cas_): n += 2
     return n + 2
 
   def Clear(self):
@@ -567,6 +695,8 @@ class MemcacheSetRequest_Item(ProtocolBuffer.ProtocolMessage):
     self.clear_flags()
     self.clear_set_policy()
     self.clear_expiration_time()
+    self.clear_cas_id()
+    self.clear_for_cas()
 
   def OutputUnchecked(self, out):
     out.putVarInt32(18)
@@ -582,6 +712,12 @@ class MemcacheSetRequest_Item(ProtocolBuffer.ProtocolMessage):
     if (self.has_expiration_time_):
       out.putVarInt32(53)
       out.put32(self.expiration_time_)
+    if (self.has_cas_id_):
+      out.putVarInt32(65)
+      out.put64(self.cas_id_)
+    if (self.has_for_cas_):
+      out.putVarInt32(72)
+      out.putBoolean(self.for_cas_)
 
   def TryMerge(self, d):
     while 1:
@@ -602,6 +738,12 @@ class MemcacheSetRequest_Item(ProtocolBuffer.ProtocolMessage):
       if tt == 53:
         self.set_expiration_time(d.get32())
         continue
+      if tt == 65:
+        self.set_cas_id(d.get64())
+        continue
+      if tt == 72:
+        self.set_for_cas(d.getBoolean())
+        continue
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -613,6 +755,8 @@ class MemcacheSetRequest_Item(ProtocolBuffer.ProtocolMessage):
     if self.has_flags_: res+=prefix+("flags: %s\n" % self.DebugFormatFixed32(self.flags_))
     if self.has_set_policy_: res+=prefix+("set_policy: %s\n" % self.DebugFormatInt32(self.set_policy_))
     if self.has_expiration_time_: res+=prefix+("expiration_time: %s\n" % self.DebugFormatFixed32(self.expiration_time_))
+    if self.has_cas_id_: res+=prefix+("cas_id: %s\n" % self.DebugFormatFixed64(self.cas_id_))
+    if self.has_for_cas_: res+=prefix+("for_cas: %s\n" % self.DebugFormatBool(self.for_cas_))
     return res
 
 class MemcacheSetRequest(ProtocolBuffer.ProtocolMessage):
@@ -620,11 +764,13 @@ class MemcacheSetRequest(ProtocolBuffer.ProtocolMessage):
   SET          =    1
   ADD          =    2
   REPLACE      =    3
+  CAS          =    4
 
   _SetPolicy_NAMES = {
     1: "SET",
     2: "ADD",
     3: "REPLACE",
+    4: "CAS",
   }
 
   def SetPolicy_Name(cls, x): return cls._SetPolicy_NAMES.get(x, "")
@@ -743,6 +889,8 @@ class MemcacheSetRequest(ProtocolBuffer.ProtocolMessage):
   kItemflags = 4
   kItemset_policy = 5
   kItemexpiration_time = 6
+  kItemcas_id = 8
+  kItemfor_cas = 9
   kname_space = 7
 
   _TEXT = _BuildTagLookupTable({
@@ -754,7 +902,9 @@ class MemcacheSetRequest(ProtocolBuffer.ProtocolMessage):
     5: "set_policy",
     6: "expiration_time",
     7: "name_space",
-  }, 7)
+    8: "cas_id",
+    9: "for_cas",
+  }, 9)
 
   _TYPES = _BuildTagLookupTable({
     0: ProtocolBuffer.Encoder.NUMERIC,
@@ -765,7 +915,9 @@ class MemcacheSetRequest(ProtocolBuffer.ProtocolMessage):
     5: ProtocolBuffer.Encoder.NUMERIC,
     6: ProtocolBuffer.Encoder.FLOAT,
     7: ProtocolBuffer.Encoder.STRING,
-  }, 7, ProtocolBuffer.Encoder.MAX_TYPE)
+    8: ProtocolBuffer.Encoder.DOUBLE,
+    9: ProtocolBuffer.Encoder.NUMERIC,
+  }, 9, ProtocolBuffer.Encoder.MAX_TYPE)
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -774,11 +926,13 @@ class MemcacheSetResponse(ProtocolBuffer.ProtocolMessage):
   STORED       =    1
   NOT_STORED   =    2
   ERROR        =    3
+  EXISTS       =    4
 
   _SetStatusCode_NAMES = {
     1: "STORED",
     2: "NOT_STORED",
     3: "ERROR",
+    4: "EXISTS",
   }
 
   def SetStatusCode_Name(cls, x): return cls._SetStatusCode_NAMES.get(x, "")

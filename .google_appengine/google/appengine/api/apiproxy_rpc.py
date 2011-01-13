@@ -111,7 +111,7 @@ class RPC(object):
     """Waits on the API call associated with this RPC."""
     rpc_completed = self._WaitImpl()
 
-    assert rpc_completed, ('RPC for %s.%s was not completed, and no other ' +
+    assert rpc_completed, ('RPC for %s.%s was not completed, and no other '
                            'exception was raised ' % (self.package, self.call))
 
   def CheckSuccess(self):

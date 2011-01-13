@@ -32,7 +32,6 @@ when it begins and releases it when it commits or rolls back.
 import array
 import itertools
 import logging
-import md5
 import sys
 import threading
 
@@ -41,8 +40,11 @@ from google.appengine.api import api_base_pb
 from google.appengine.api import apiproxy_stub
 from google.appengine.api import apiproxy_stub_map
 from google.appengine.api import datastore_errors
+from google.appengine.api import datastore_types
+from google.appengine.api.taskqueue import taskqueue_service_pb
 from google.appengine.datastore import datastore_index
 from google.appengine.datastore import datastore_pb
+from google.appengine.datastore import datastore_stub_util
 from google.appengine.datastore import sortable_pb_encoder
 from google.appengine.runtime import apiproxy_errors
 
@@ -50,13 +52,6 @@ try:
   import pysqlite2.dbapi2 as sqlite3
 except ImportError:
   import sqlite3
-
-try:
-  __import__('google.appengine.api.labs.taskqueue.taskqueue_service_pb')
-  taskqueue_service_pb = sys.modules.get(
-      'google.appengine.api.labs.taskqueue.taskqueue_service_pb')
-except ImportError:
-  from google.appengine.api.taskqueue import taskqueue_service_pb
 
 
 import __builtin__
@@ -67,9 +62,6 @@ entity_pb.Reference.__hash__ = lambda self: hash(self.Encode())
 datastore_pb.Query.__hash__ = lambda self: hash(self.Encode())
 datastore_pb.Transaction.__hash__ = lambda self: hash(self.Encode())
 datastore_pb.Cursor.__hash__ = lambda self: hash(self.Encode())
-
-
-_MAXIMUM_RESULTS = 1000
 
 
 _MAX_QUERY_COMPONENTS = 63
@@ -90,6 +82,9 @@ _OPERATOR_MAP = {
     datastore_pb.Query_Filter.EQUAL: '=',
     datastore_pb.Query_Filter.GREATER_THAN: '>',
     datastore_pb.Query_Filter.GREATER_THAN_OR_EQUAL: '>=',
+
+
+    '!=': '!=',
 }
 
 
@@ -155,7 +150,7 @@ def ReferencePropertyToReference(refprop):
   return ref
 
 
-class QueryCursor(object):
+class QueryCursor(datastore_stub_util.BaseCursor):
   """Encapsulates a database cursor and provides methods to fetch results."""
 
   def __init__(self, query, db_cursor):
@@ -167,14 +162,19 @@ class QueryCursor(object):
         must be the path of the entity and the entity itself, while the
         remaining columns must be the sort columns for the query.
     """
+    super(QueryCursor, self).__init__(query.app())
     self.__query = query
     self.app = query.app()
     self.__cursor = db_cursor
     self.__seen = set()
 
-    self.__position = ''
+    self.__position = ('', '')
 
     self.__next_result = (None, None)
+
+    if (query.has_compiled_cursor() and
+        query.compiled_cursor().position_size()):
+      self.ResumeFromCompiledCursor(query.compiled_cursor())
 
     if query.has_limit():
       self.limit = query.limit() + query.offset()
@@ -204,8 +204,9 @@ class QueryCursor(object):
     Args:
       cc: The compiled cursor to fill out.
     """
-    position = cc.add_position()
-    position.set_start_key(self.__position)
+    if self.__position[0]:
+      position = cc.add_position()
+      position.set_start_key(self.__position[0])
 
   def _GetResult(self):
     """Returns the next result from the result set, without deduplication.
@@ -213,6 +214,9 @@ class QueryCursor(object):
     Returns:
       (path, value): The path and value of the next result.
     """
+    if self.__position[1]:
+      self.__position = (self.__position[1], None)
+
     if not self.__cursor:
       return None, None
     row = self.__cursor.fetchone()
@@ -220,7 +224,14 @@ class QueryCursor(object):
       self.__cursor = None
       return None, None
     path, data, position_parts = str(row[0]), row[1], row[2:]
-    self.__position = ''.join(str(x) for x in position_parts)
+    position = ''.join(str(x) for x in position_parts)
+    if self.__query.has_end_compiled_cursor() and (
+        not self.__query.end_compiled_cursor().position_list() or
+        position > self.__query.end_compiled_cursor().position(0).start_key()):
+      self.__cursor = None
+      return None, None
+
+    self.__position = (self.__position[0], position)
     return path, data
 
   def _Next(self):
@@ -229,25 +240,44 @@ class QueryCursor(object):
     Returns:
       A datastore_pb.EntityProto instance.
     """
-    entity = None
-    path, data = self.__next_result
-    self.__next_result = None, None
-    while self.__cursor and not entity:
-      if path and path not in self.__seen:
-        self.__seen.add(path)
-        entity = entity_pb.EntityProto(data)
-      else:
-        path, data = self._GetResult()
-    return entity
+    if self._HasNext():
+      self.__seen.add(self.__next_result[0])
+      entity = entity_pb.EntityProto(self.__next_result[1])
+      datastore_stub_util.PrepareSpecialPropertiesForLoad(entity)
+      self.__next_result = None, None
+      return entity
+    return None
+
+  def _HasNext(self):
+    """Prefetches the next result and returns true if successful.
+
+    Returns:
+      A boolean that indicates if there are more results.
+    """
+    while self.__cursor and (
+        not self.__next_result[0] or self.__next_result[0] in self.__seen):
+      self.__next_result = self._GetResult()
+
+    if self.limit is not None and len(self.__seen) >= self.limit:
+      return False
+
+    if self.__next_result[0]:
+      return True
+    return False
 
   def Skip(self, count):
     """Skips the specified number of unique results.
 
     Args:
       count: Number of results to skip.
+
+    Returns:
+      A number indicating how many results where actually skipped.
     """
-    for unused_i in xrange(count):
-      self._Next()
+    for i in xrange(count):
+      if not self._Next():
+        return i
+    return count
 
   def ResumeFromCompiledCursor(self, cc):
     """Resumes a query from a compiled cursor.
@@ -255,33 +285,323 @@ class QueryCursor(object):
     Args:
       cc: The compiled cursor to resume from.
     """
+
     target_position = cc.position(0).start_key()
-    while self.__position <= target_position and self.__cursor:
+    if (self.__query.has_end_compiled_cursor() and target_position >=
+        self.__query.end_compiled_cursor().position(0).start_key()):
+      self.__position = (target_position, target_position)
+      self.__cursor = None
+      return
+
+    while self.__position[1] <= target_position and self.__cursor:
       self.__next_result = self._GetResult()
 
-  def PopulateQueryResult(self, count, result):
+  def PopulateQueryResult(self, result, count, offset):
     """Populates a QueryResult PB with results from the cursor.
 
     Args:
-      count: The number of results to retrieve.
       result: out: A query_result PB.
+      count: The number of results to retrieve.
+      offset: The number of results to skip
     """
-    if count > _MAXIMUM_RESULTS:
-      count = _MAXIMUM_RESULTS
+    limited_offset = min(offset, datastore_stub_util._MAX_QUERY_OFFSET)
+    if limited_offset:
+      result.set_skipped_results(self.Skip(limited_offset))
+
+    if offset == limited_offset:
+      if count > datastore_stub_util._MAXIMUM_RESULTS:
+        count = datastore_stub_util._MAXIMUM_RESULTS
+
+      result_list = result.result_list()
+      while len(result_list) < count:
+        entity = self._Next()
+        if entity is None:
+          break
+        result_list.append(entity)
 
     result.set_keys_only(self.__query.keys_only())
-
-    result_list = result.result_list()
-    while len(result_list) < count:
-      if self.limit is not None and len(self.__seen) >= self.limit:
-        break
-      entity = self._Next()
-      if entity is None:
-        break
-      result_list.append(entity)
-
-    result.set_more_results(len(result_list) == count)
+    result.set_more_results(self._HasNext())
+    self.PopulateCursor(result.mutable_cursor())
     self._EncodeCompiledCursor(result.mutable_compiled_cursor())
+
+
+def MakeEntityForQuery(query, *path):
+  """Make an entity to be returned by a pseudo-kind query.
+
+  Args:
+    query: the query which will return the entity.
+    path: pairs of type/name-or-id values specifying the entity's key
+  Returns:
+    An entity_pb.EntityProto with app and namespace as in query and the key
+    specified by path.
+  """
+  pseudo_pb = entity_pb.EntityProto()
+  pseudo_pb.mutable_entity_group()
+  pseudo_pk = pseudo_pb.mutable_key()
+  pseudo_pk.set_app(query.app())
+  if query.has_name_space():
+    pseudo_pk.set_name_space(query.name_space())
+
+  for i in xrange(0, len(path), 2):
+    pseudo_pe = pseudo_pk.mutable_path().add_element()
+    pseudo_pe.set_type(path[i])
+    if isinstance(path[i + 1], basestring):
+      pseudo_pe.set_name(path[i + 1])
+    else:
+      pseudo_pe.set_id(path[i + 1])
+
+  return pseudo_pb
+
+
+class KindPseudoKind(object):
+  """Pseudo-kind for __kind__ queries.
+
+  Provides a Query method to perform the actual query.
+
+  Public properties:
+    name: the pseudo-kind name
+  """
+  name = '__kind__'
+
+  def __init__(self, sqlitestub):
+    """Constructor.
+
+    Initializes a __kind__ pseudo-kind definition.
+
+    Args:
+      sqlitestub: the DatastoreSqliteStub instance being served by this
+          pseudo-kind.
+    """
+    self.sqlitestub = sqlitestub
+
+  def Query(self, query, filters, orders):
+    """Perform a query on this pseudo-kind.
+
+    Args:
+      query: the original datastore_pb.Query
+      filters: the filters from query
+      orders: the orders from query
+
+    Returns:
+      A query cursor to iterate over the query results, or None if the query
+      is invalid.
+    """
+    kind_range = datastore_stub_util.ParseKindQuery(query, filters, orders)
+    conn = self.sqlitestub._GetConnection(None)
+    cursor = None
+    try:
+      prefix = self.sqlitestub._GetTablePrefix(query)
+      filters = []
+
+      def AddExtremeFilter(extreme, inclusive, is_end):
+        """Add filter for kind start/end."""
+        if not is_end:
+          if inclusive:
+            op = datastore_pb.Query_Filter.GREATER_THAN_OR_EQUAL
+          else:
+            op = datastore_pb.Query_Filter.GREATER_THAN
+        else:
+          if inclusive:
+            op = datastore_pb.Query_Filter.LESS_THAN_OR_EQUAL
+          else:
+            op = datastore_pb.Query_Filter.LESS_THAN
+        filters.append(('kind', op, extreme))
+      kind_range.MapExtremes(AddExtremeFilter)
+
+      params = []
+      sql_filters = self.sqlitestub._CreateFilterString(filters, params)
+      sql_stmt = ('SELECT kind FROM "%s!Entities" %s GROUP BY kind'
+                  % (prefix, sql_filters))
+      c = conn.execute(sql_stmt, params)
+
+      kinds = []
+      for row in c.fetchall():
+        kind = row[0].encode('utf-8')
+        kinds.append(MakeEntityForQuery(query, self.name, kind))
+
+      cursor = datastore_stub_util.ListCursor(
+          query, kinds, datastore_stub_util.CompareEntityPbByKey)
+    finally:
+      self.sqlitestub._ReleaseConnection(conn, None)
+
+    return cursor
+
+
+class PropertyPseudoKind(object):
+  """Pseudo-kind for __property__ queries.
+
+  Provides a Query method to perform the actual query.
+
+  Public properties:
+    name: the pseudo-kind name
+  """
+  name = '__property__'
+
+  def __init__(self, sqlitestub):
+    """Constructor.
+
+    Initializes a __property__ pseudo-kind definition.
+
+    Args:
+      sqlitestub: the DatastoreSqliteStub instance being served by this
+          pseudo-kind.
+    """
+    self.sqlitestub = sqlitestub
+
+  def Query(self, query, filters, orders):
+    """Perform a query on this pseudo-kind.
+
+    Args:
+      query: the original datastore_pb.Query
+      filters: the filters from query
+      orders: the orders from query
+
+    Returns:
+      A query cursor to iterate over the query results, or None if the query
+      is invalid.
+    """
+    property_range = datastore_stub_util.ParsePropertyQuery(query, filters,
+                                                            orders)
+    keys_only = query.keys_only()
+    conn = self.sqlitestub._GetConnection(None)
+    cursor = None
+    try:
+      prefix = self.sqlitestub._GetTablePrefix(query)
+      filters = []
+
+      def AddExtremeFilter(extreme, inclusive, is_end):
+        """Add filter for kind start/end."""
+        if not is_end:
+          op = datastore_pb.Query_Filter.GREATER_THAN_OR_EQUAL
+        else:
+          op = datastore_pb.Query_Filter.LESS_THAN_OR_EQUAL
+        filters.append(('kind', op, extreme[0]))
+      property_range.MapExtremes(AddExtremeFilter)
+
+      for name in datastore_stub_util.GetInvisibleSpecialPropertyNames():
+        filters.append(('name', '!=', name))
+
+      params = []
+      sql_filters = self.sqlitestub._CreateFilterString(filters, params)
+      if not keys_only:
+        sql_stmt = ('SELECT kind, name, value FROM "%s!EntitiesByProperty" %s '
+                    'GROUP BY kind, name, substr(value, 1, 1) '
+                    'ORDER BY kind, name'
+                    % (prefix, sql_filters))
+      else:
+        sql_stmt = ('SELECT kind, name FROM "%s!EntitiesByProperty" %s '
+                    'GROUP BY kind, name ORDER BY kind, name'
+                    % (prefix, sql_filters))
+      c = conn.execute(sql_stmt, params)
+
+      properties = []
+      kind = None
+      name = None
+      property_pb = None
+      for row in c.fetchall():
+        if not (row[0] == kind and row[1] == name):
+          new_kind = row[0].encode('utf-8')
+          new_name = row[1].encode('utf-8')
+          if not property_range.Contains((new_kind, new_name)):
+            continue
+          kind = new_kind
+          name = new_name
+
+          if property_pb:
+            properties.append(property_pb)
+          property_pb = MakeEntityForQuery(query, KindPseudoKind.name, kind,
+                                           self.name, name)
+
+        if not keys_only:
+          value_data = row[2]
+          value_decoder = sortable_pb_encoder.Decoder(
+              array.array('B', str(value_data)))
+          raw_value_pb = entity_pb.PropertyValue()
+          raw_value_pb.Merge(value_decoder)
+          if raw_value_pb.has_int64value():
+            tag = entity_pb.PropertyValue.kint64Value
+          elif raw_value_pb.has_booleanvalue():
+            tag = entity_pb.PropertyValue.kbooleanValue
+          elif raw_value_pb.has_stringvalue():
+            tag = entity_pb.PropertyValue.kstringValue
+          elif raw_value_pb.has_doublevalue():
+            tag = entity_pb.PropertyValue.kdoubleValue
+          elif raw_value_pb.has_pointvalue():
+            tag = entity_pb.PropertyValue.kPointValueGroup
+          elif raw_value_pb.has_uservalue():
+            tag = entity_pb.PropertyValue.kUserValueGroup
+          elif raw_value_pb.has_referencevalue():
+            tag = entity_pb.PropertyValue. kReferenceValueGroup
+          else:
+            tag = 0
+          tag_name = datastore_stub_util._PROPERTY_TYPE_NAMES[tag]
+
+          representation_pb = property_pb.add_property()
+          representation_pb.set_name(u'property_representation')
+          representation_pb.set_multiple(True)
+          representation_pb.mutable_value().set_stringvalue(tag_name)
+
+      if property_pb:
+        properties.append(property_pb)
+
+      cursor = datastore_stub_util.ListCursor(
+          query, properties, datastore_stub_util.CompareEntityPbByKey)
+    finally:
+      self.sqlitestub._ReleaseConnection(conn, None)
+
+    return cursor
+
+
+class NamespacePseudoKind(object):
+  """Pseudo-kind for __namespace__ queries.
+
+  Provides a Query method to perform the actual query.
+
+  Public properties:
+    name: the pseudo-kind name
+  """
+  name = '__namespace__'
+
+  def __init__(self, sqlitestub):
+    """Constructor.
+
+    Initializes a __namespace__ pseudo-kind definition.
+
+    Args:
+      sqlitestub: the DatastoreSqliteStub instance being served by this
+          pseudo-kind.
+    """
+    self.sqlitestub = sqlitestub
+
+  def Query(self, query, filters, orders):
+    """Perform a query on this pseudo-kind.
+
+    Args:
+      query: the original datastore_pb.Query
+      filters: the filters from query
+      orders: the orders from query
+
+    Returns:
+      A query cursor to iterate over the query results, or None if the query
+      is invalid.
+    """
+    namespace_range = datastore_stub_util.ParseNamespaceQuery(query, filters,
+                                                              orders)
+    app_str = query.app()
+
+    namespace_entities = []
+
+    namespaces = self.sqlitestub._DatastoreSqliteStub__namespaces
+    for app_id, namespace in sorted(namespaces):
+      if app_id == app_str and namespace_range.Contains(namespace):
+        if namespace:
+          ns_id = namespace
+        else:
+          ns_id = datastore_types._EMPTY_NAMESPACE_ID
+        namespace_entities.append(MakeEntityForQuery(query, self.name, ns_id))
+
+    return datastore_stub_util.ListCursor(
+        query, namespace_entities, datastore_stub_util.CompareEntityPbByKey)
 
 
 class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
@@ -354,8 +674,6 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     self.__tx_writes = {}
     self.__tx_deletes = set()
 
-    self.__next_cursor_id = 1
-    self.__cursor_lock = threading.Lock()
     self.__cursors = {}
 
     self.__namespaces = set()
@@ -364,6 +682,11 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     self.__index_lock = threading.Lock()
 
     self.__query_history = {}
+
+    self.__pseudo_kinds = {}
+    self._RegisterPseudoKind(KindPseudoKind(self))
+    self._RegisterPseudoKind(PropertyPseudoKind(self))
+    self._RegisterPseudoKind(NamespacePseudoKind(self))
 
     try:
       self.__Init()
@@ -387,9 +710,12 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
       for index in indexes.index_list():
         index_map.setdefault(index.definition().entity_type(), []).append(index)
 
+  def _RegisterPseudoKind(self, kind):
+    self.__pseudo_kinds[kind.name] = kind
+
   def Clear(self):
     """Clears the datastore."""
-    conn = self.__GetConnection(None)
+    conn = self._GetConnection(None)
     try:
       c = conn.execute(
           "SELECT tbl_name FROM sqlite_master WHERE type = 'table'")
@@ -397,7 +723,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
         conn.execute('DROP TABLE "%s"' % row)
       conn.commit()
     finally:
-      self.__ReleaseConnection(conn, None)
+      self._ReleaseConnection(conn, None)
 
     self.__namespaces = set()
     self.__indexes = {}
@@ -466,7 +792,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     return len(params)
 
   @staticmethod
-  def __CreateFilterString(filter_list, params):
+  def _CreateFilterString(filter_list, params):
     """Transforms a filter list into an SQL WHERE clause.
 
     Args:
@@ -551,7 +877,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
             'each key path element should have id or name but not both: %r'
             % key)
 
-  def __GetConnection(self, transaction):
+  def _GetConnection(self, transaction):
     """Retrieves a connection to the SQLite DB.
 
     If a transaction is supplied, the transaction's connection is returned;
@@ -572,7 +898,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
           'Only one concurrent transaction per thread is permitted.')
     return self.__connection
 
-  def __ReleaseConnection(self, conn, transaction, rollback=False):
+  def _ReleaseConnection(self, conn, transaction, rollback=False):
     """Releases a connection for use by other operations.
 
     If a transaction is supplied, no action is taken.
@@ -616,7 +942,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     conn.execute('UPDATE Apps SET indexes = ? WHERE app_id = ?',
                  (app, indices.Encode()))
 
-  def __GetTablePrefix(self, data):
+  def _GetTablePrefix(self, data):
     """Returns the namespace prefix for a query.
 
     Args:
@@ -662,7 +988,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     keys = sorted((x.app(), x.name_space(), x) for x in keys)
     for (app_id, ns), group in itertools.groupby(keys, lambda x: x[:2]):
       path_strings = [self.__EncodeIndexPB(x[2].path()) for x in group]
-      prefix = self.__GetTablePrefix((app_id, ns))
+      prefix = self._GetTablePrefix((app_id, ns))
       return self.__DeleteRows(conn, path_strings, '%s!%s' % (prefix, table))
 
   def __DeleteIndexEntries(self, conn, keys):
@@ -688,7 +1014,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
                self.__GetEntityKind(e),
                buffer(e.Encode()))
 
-    entities = sorted((self.__GetTablePrefix(x), x) for x in entities)
+    entities = sorted((self._GetTablePrefix(x), x) for x in entities)
     for prefix, group in itertools.groupby(entities, lambda x: x[0]):
       conn.executemany(
           'INSERT OR REPLACE INTO "%s!Entities" VALUES (?, ?, ?)' % prefix,
@@ -709,41 +1035,62 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
                  p.name(),
                  self.__EncodeIndexPB(p.value()),
                  self.__EncodeIndexPB(e.key().path()))
-    entities = sorted((self.__GetTablePrefix(x), x) for x in entities)
+    entities = sorted((self._GetTablePrefix(x), x) for x in entities)
     for prefix, group in itertools.groupby(entities, lambda x: x[0]):
       conn.executemany(
           'INSERT INTO "%s!EntitiesByProperty" VALUES (?, ?, ?, ?)' % prefix,
           RowGenerator(group))
 
-  def __AllocateIds(self, conn, prefix, size):
+  def __AllocateIds(self, conn, prefix, size=None, max=None):
     """Allocates IDs.
 
     Args:
       conn: An Sqlite connection object.
       prefix: A table namespace prefix.
       size: Number of IDs to allocate.
+      max: Upper bound of IDs to allocate
+
     Returns:
       int: The beginning of a range of size IDs
     """
     self.__id_lock.acquire()
-    next_id, block_size = self.__id_map.get(prefix, (0, 0))
-    if size >= block_size:
-      block_size = max(1000, size)
-      c = conn.execute(
-          'UPDATE IdSeq SET next_id = next_id + ? WHERE prefix = ?',
-          (block_size, prefix))
-      assert c.rowcount == 1
+    ret = None
+    if size is not None:
+      assert size > 0
+      next_id, block_size = self.__id_map.get(prefix, (0, 0))
+      if not block_size:
+        block_size = (size / 1000 + 1) * 1000
+        c = conn.execute('SELECT next_id FROM IdSeq WHERE prefix = ? LIMIT 1',
+                         (prefix,))
+        next_id = c.fetchone()[0]
+        c = conn.execute(
+            'UPDATE IdSeq SET next_id = next_id + ? WHERE prefix = ?',
+            (block_size, prefix))
+        assert c.rowcount == 1
+
+      if size > block_size:
+        c = conn.execute('SELECT next_id FROM IdSeq WHERE prefix = ? LIMIT 1',
+                         (prefix,))
+        ret = c.fetchone()[0]
+        c = conn.execute(
+            'UPDATE IdSeq SET next_id = next_id + ? WHERE prefix = ?',
+            (size, prefix))
+        assert c.rowcount == 1
+      else:
+        ret = next_id;
+        next_id += size
+        block_size -= size
+        self.__id_map[prefix] = (next_id, block_size)
+    else:
       c = conn.execute('SELECT next_id FROM IdSeq WHERE prefix = ? LIMIT 1',
                        (prefix,))
-      next_id = c.fetchone()[0] - block_size
-
-    ret = next_id
-
-    next_id += size
-    block_size -= size
-    self.__id_map[prefix] = (next_id, block_size)
+      ret = c.fetchone()[0]
+      if max and max >= ret:
+        c = conn.execute(
+            'UPDATE IdSeq SET next_id = ? WHERE prefix = ?',
+            (max + 1, prefix))
+        assert c.rowcount == 1
     self.__id_lock.release()
-
     return ret
 
   def MakeSyncCall(self, service, call, request, response):
@@ -772,6 +1119,8 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
 
   def __PutEntities(self, conn, entities):
     self.__DeleteIndexEntries(conn, [e.key() for e in entities])
+    for entity in entities:
+      datastore_stub_util.PrepareSpecialPropertiesForStore(entity)
     self.__InsertEntities(conn, entities)
     self.__InsertIndexEntries(conn, entities)
 
@@ -780,7 +1129,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     self.__DeleteEntityRows(conn, keys, 'Entities')
 
   def _Dynamic_Put(self, put_request, put_response):
-    conn = self.__GetConnection(put_request.transaction())
+    conn = self._GetConnection(put_request.transaction())
     try:
       entities = put_request.entity_list()
       for entity in entities:
@@ -788,17 +1137,14 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
 
         for prop in itertools.chain(entity.property_list(),
                                     entity.raw_property_list()):
-          if prop.value().has_uservalue():
-            uid = md5.new(prop.value().uservalue().email().lower()).digest()
-            uid = '1' + ''.join(['%02d' % ord(x) for x in uid])[:20]
-            prop.mutable_value().mutable_uservalue().set_obfuscated_gaiaid(uid)
+          datastore_stub_util.FillUser(prop)
 
         assert entity.has_key()
         assert entity.key().path().element_size() > 0
 
         last_path = entity.key().path().element_list()[-1]
         if last_path.id() == 0 and not last_path.has_name():
-          id_ = self.__AllocateIds(conn, self.__GetTablePrefix(entity.key()), 1)
+          id_ = self.__AllocateIds(conn, self._GetTablePrefix(entity.key()), 1)
           last_path.set_id(id_)
 
           assert entity.entity_group().element_size() == 0
@@ -818,14 +1164,14 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
         self.__PutEntities(conn, entities)
       put_response.key_list().extend([e.key() for e in entities])
     finally:
-      self.__ReleaseConnection(conn, put_request.transaction())
+      self._ReleaseConnection(conn, put_request.transaction())
 
   def _Dynamic_Get(self, get_request, get_response):
-    conn = self.__GetConnection(get_request.transaction())
+    conn = self._GetConnection(get_request.transaction())
     try:
       for key in get_request.key_list():
         self.__ValidateAppId(key.app())
-        prefix = self.__GetTablePrefix(key)
+        prefix = self._GetTablePrefix(key)
         c = conn.execute(
             'SELECT entity FROM "%s!Entities" WHERE __path__ = ?' % (prefix,),
             (self.__EncodeIndexPB(key.path()),))
@@ -833,11 +1179,13 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
         row = c.fetchone()
         if row:
           group.mutable_entity().ParseFromString(row[0])
+          datastore_stub_util.PrepareSpecialPropertiesForLoad(
+              group.mutable_entity())
     finally:
-      self.__ReleaseConnection(conn, get_request.transaction())
+      self._ReleaseConnection(conn, get_request.transaction())
 
   def _Dynamic_Delete(self, delete_request, delete_response):
-    conn = self.__GetConnection(delete_request.transaction())
+    conn = self._GetConnection(delete_request.transaction())
     try:
       for key in delete_request.key_list():
         self.__ValidateAppId(key.app())
@@ -848,7 +1196,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
       if not delete_request.transaction().handle():
         self.__DeleteEntities(conn, delete_request.key_list())
     finally:
-      self.__ReleaseConnection(conn, delete_request.transaction())
+      self._ReleaseConnection(conn, delete_request.transaction())
 
   def __GenerateFilterInfo(self, filters, query):
     """Transform a list of filters into a more usable form.
@@ -927,8 +1275,8 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     query = ('SELECT Entities.__path__, Entities.entity, %s '
              'FROM "%s!Entities" AS Entities %s %s' % (
                  ','.join(x[0] for x in orders),
-                 self.__GetTablePrefix(query),
-                 self.__CreateFilterString(filters, params),
+                 self._GetTablePrefix(query),
+                 self._CreateFilterString(filters, params),
                  self.__CreateOrderString(orders)))
     return query, params
 
@@ -956,7 +1304,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     if not query.has_kind():
       return None
 
-    prefix = self.__GetTablePrefix(query)
+    prefix = self._GetTablePrefix(query)
     filters = []
     filters.append(('EntitiesByProperty.kind',
                     datastore_pb.Query_Filter.EQUAL, query.kind()))
@@ -981,7 +1329,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
         ','.join(x[0] for x in orders[2:]),
         prefix,
         prefix,
-        self.__CreateFilterString(filters, params),
+        self._CreateFilterString(filters, params),
         self.__CreateOrderString(orders))
     query = ('SELECT Entities.__path__, Entities.entity, %s '
              'FROM "%s!EntitiesByProperty" AS EntitiesByProperty INNER JOIN '
@@ -1019,7 +1367,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
       if prop not in filter_info:
         filter_sets.append((prop, []))
 
-    prefix = self.__GetTablePrefix(query)
+    prefix = self._GetTablePrefix(query)
 
     joins = []
     filters = []
@@ -1059,7 +1407,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
         ','.join(x[0] for x in orders),
         prefix,
         ' '.join(joins),
-        self.__CreateFilterString(filters, params),
+        self._CreateFilterString(filters, params),
         self.__CreateOrderString(orders))
     query = ('SELECT Entities.__path__, Entities.entity, %s '
              'FROM "%s!Entities" AS Entities %s %s %s' % format_args)
@@ -1134,7 +1482,7 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
   ]
 
   def __GetQueryCursor(self, conn, query):
-    """Returns an SQLite query cursor for the provided query.
+    """Returns a query cursor for the provided query.
 
     Args:
       conn: The SQLite connection.
@@ -1142,49 +1490,41 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     Returns:
       A QueryCursor object.
     """
-    if query.has_transaction() and not query.has_ancestor():
-      raise apiproxy_errors.ApplicationError(
-          datastore_pb.Error.BAD_REQUEST,
-          'Only ancestor queries are allowed inside transactions.')
-
-    num_components = len(query.filter_list()) + len(query.order_list())
-    if query.has_ancestor():
-      num_components += 1
-    if num_components > _MAX_QUERY_COMPONENTS:
-      raise apiproxy_errors.ApplicationError(
-          datastore_pb.Error.BAD_REQUEST,
-          ('query is too large. may not have more than %s filters'
-           ' + sort orders ancestor total' % _MAX_QUERY_COMPONENTS))
-
     app_id = query.app()
     self.__ValidateAppId(app_id)
 
     filters, orders = datastore_index.Normalize(query.filter_list(),
                                                 query.order_list())
+    datastore_stub_util.ValidateQuery(query, filters, orders,
+        _MAX_QUERY_COMPONENTS)
+    datastore_stub_util.FillUsersInQuery(filters)
 
-    filter_info = self.__GenerateFilterInfo(filters, query)
-    order_info = self.__GenerateOrderInfo(orders)
-
-    for strategy in DatastoreSqliteStub._QUERY_STRATEGIES:
-      result = strategy(self, query, filter_info, order_info)
-      if result:
-        break
+    if query.has_kind() and query.kind() in self.__pseudo_kinds:
+      cursor = self.__pseudo_kinds[query.kind()].Query(query, filters, orders)
+      if not cursor:
+        raise apiproxy_errors.ApplicationError(
+            datastore_pb.Error.BAD_REQUEST,
+            'Could not create query for pseudo-kind')
     else:
-      raise apiproxy_errors.ApplicationError(
-          datastore_pb.Error.BAD_REQUEST,
-          'No strategy found to satisfy query.')
+      filter_info = self.__GenerateFilterInfo(filters, query)
+      order_info = self.__GenerateOrderInfo(orders)
 
-    sql_stmt, params = result
+      for strategy in DatastoreSqliteStub._QUERY_STRATEGIES:
+        result = strategy(self, query, filter_info, order_info)
+        if result:
+          break
+      else:
+        raise apiproxy_errors.ApplicationError(
+            datastore_pb.Error.BAD_REQUEST,
+            'No strategy found to satisfy query.')
 
-    if self.__verbose:
-      logging.info("Executing statement '%s' with arguments %r",
-                   sql_stmt, [str(x) for x in params])
-    db_cursor = conn.execute(sql_stmt, params)
-    cursor = QueryCursor(query, db_cursor)
-    if query.has_compiled_cursor() and query.compiled_cursor().position_size():
-      cursor.ResumeFromCompiledCursor(query.compiled_cursor())
-    if query.has_offset():
-      cursor.Skip(query.offset())
+      sql_stmt, params = result
+
+      if self.__verbose:
+        logging.info("Executing statement '%s' with arguments %r",
+                     sql_stmt, [str(x) for x in params])
+      db_cursor = conn.execute(sql_stmt, params)
+      cursor = QueryCursor(query, db_cursor)
 
     clone = datastore_pb.Query()
     clone.CopyFrom(query)
@@ -1197,18 +1537,9 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     return cursor
 
   def _Dynamic_RunQuery(self, query, query_result):
-    conn = self.__GetConnection(query.transaction())
+    conn = self._GetConnection(query.transaction())
     try:
       cursor = self.__GetQueryCursor(conn, query)
-
-      self.__cursor_lock.acquire()
-      cursor_id = self.__next_cursor_id
-      self.__next_cursor_id += 1
-      self.__cursor_lock.release()
-
-      cursor_pb = query_result.mutable_cursor()
-      cursor_pb.set_app(query.app())
-      cursor_pb.set_cursor(cursor_id)
 
       if query.has_count():
         count = query.count()
@@ -1217,16 +1548,16 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
       else:
         count = _BATCH_SIZE
 
-      cursor.PopulateQueryResult(count, query_result)
-      self.__cursors[cursor_pb] = cursor
+      cursor.PopulateQueryResult(query_result, count, query.offset())
+      self.__cursors[query_result.cursor().cursor()] = cursor
     finally:
-      self.__ReleaseConnection(conn, query.transaction())
+      self._ReleaseConnection(conn, query.transaction())
 
   def _Dynamic_Next(self, next_request, query_result):
     self.__ValidateAppId(next_request.cursor().app())
 
     try:
-      cursor = self.__cursors[next_request.cursor()]
+      cursor = self.__cursors[next_request.cursor().cursor()]
     except KeyError:
       raise apiproxy_errors.ApplicationError(
           datastore_pb.Error.BAD_REQUEST,
@@ -1237,20 +1568,20 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
     count = _BATCH_SIZE
     if next_request.has_count():
       count = next_request.count()
-    cursor.PopulateQueryResult(count, query_result)
+    cursor.PopulateQueryResult(query_result, count, next_request.offset())
 
   def _Dynamic_Count(self, query, integer64proto):
     if query.has_limit():
-      query.set_limit(min(query.limit(), _MAXIMUM_RESULTS))
+      query.set_limit(min(query.limit(), datastore_stub_util._MAXIMUM_RESULTS))
     else:
-      query.set_limit(_MAXIMUM_RESULTS)
+      query.set_limit(datastore_stub_util._MAXIMUM_RESULTS)
 
-    conn = self.__GetConnection(query.transaction())
+    conn = self._GetConnection(query.transaction())
     try:
       cursor = self.__GetQueryCursor(conn, query)
       integer64proto.set_value(cursor.Count())
     finally:
-      self.__ReleaseConnection(conn, query.transaction())
+      self._ReleaseConnection(conn, query.transaction())
 
   def _Dynamic_BeginTransaction(self, request, transaction):
     self.__ValidateAppId(request.app())
@@ -1302,20 +1633,20 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
       self.__tx_actions = []
       self.__tx_writes = {}
       self.__tx_deletes = set()
-      self.__ReleaseConnection(conn, None)
+      self._ReleaseConnection(conn, None)
 
   def _Dynamic_Rollback(self, transaction, _):
-    conn = self.__GetConnection(transaction)
+    conn = self._GetConnection(transaction)
     self.__current_transaction = None
     self.__tx_actions = []
     self.__tx_writes = {}
     self.__tx_deletes = set()
-    self.__ReleaseConnection(conn, None, True)
+    self._ReleaseConnection(conn, None, True)
 
   def _Dynamic_GetSchema(self, req, schema):
-    conn = self.__GetConnection(None)
+    conn = self._GetConnection(None)
     try:
-      prefix = self.__GetTablePrefix(req)
+      prefix = self._GetTablePrefix(req)
 
       filters = []
       if req.has_start_kind():
@@ -1329,10 +1660,10 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
       if req.properties():
         sql_stmt = ('SELECT kind, name, value FROM "%s!EntitiesByProperty" %s '
                     'GROUP BY kind, name, substr(value, 1, 1) ORDER BY kind'
-                    % (prefix, self.__CreateFilterString(filters, params)))
+                    % (prefix, self._CreateFilterString(filters, params)))
       else:
         sql_stmt = ('SELECT kind FROM "%s!Entities" %s GROUP BY kind'
-                    % (prefix, self.__CreateFilterString(filters, params)))
+                    % (prefix, self._CreateFilterString(filters, params)))
       c = conn.execute(sql_stmt, params)
 
       kind = None
@@ -1388,21 +1719,36 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
       if kind_pb:
         schema.kind_list().append(kind_pb)
     finally:
-      self.__ReleaseConnection(conn, None)
+      self._ReleaseConnection(conn, None)
 
   def _Dynamic_AllocateIds(self, allocate_ids_request, allocate_ids_response):
-    conn = self.__GetConnection(None)
-
+    conn = self._GetConnection(None)
     model_key = allocate_ids_request.model_key()
-    size = allocate_ids_request.size()
-
     self.__ValidateAppId(model_key.app())
+    if allocate_ids_request.has_size() and allocate_ids_request.has_max():
+      raise apiproxy_errors.ApplicationError(datastore_pb.Error.BAD_REQUEST,
+                                             'Both size and max cannot be set.')
 
-    first_id = self.__AllocateIds(conn, self.__GetTablePrefix(model_key), size)
-    allocate_ids_response.set_start(first_id)
-    allocate_ids_response.set_end(first_id + size - 1)
+    if allocate_ids_request.has_size():
+      if allocate_ids_request.size() < 1:
+        raise apiproxy_errors.ApplicationError(datastore_pb.Error.BAD_REQUEST,
+                                               'Size must be greater than 0.')
+      first_id = self.__AllocateIds(conn, self._GetTablePrefix(model_key),
+                                    size=allocate_ids_request.size())
+      allocate_ids_response.set_start(first_id)
+      allocate_ids_response.set_end(first_id + allocate_ids_request.size() - 1)
+    else:
+      if allocate_ids_request.max() < 0:
+        raise apiproxy_errors.ApplicationError(
+            datastore_pb.Error.BAD_REQUEST,
+            'Max must be greater than or equal to 0.')
+      first_id = self.__AllocateIds(conn, self._GetTablePrefix(model_key),
+                                    max=allocate_ids_request.max())
+      allocate_ids_response.set_start(first_id)
+      allocate_ids_response.set_end(max(allocate_ids_request.max(),
+                                        first_id - 1))
 
-    self.__ReleaseConnection(conn, None)
+    self._ReleaseConnection(conn, None)
 
   def __FindIndex(self, index):
     """Finds an existing index by definition.
@@ -1444,11 +1790,11 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
       clone.CopyFrom(index)
       self.__indexes.setdefault(app_id, {}).setdefault(kind, []).append(clone)
 
-      conn = self.__GetConnection(None)
+      conn = self._GetConnection(None)
       try:
         self.__WriteIndexData(conn, app_id)
       finally:
-        self.__ReleaseConnection(conn, None)
+        self._ReleaseConnection(conn, None)
     finally:
       self.__index_lock.release()
 
@@ -1489,11 +1835,11 @@ class DatastoreSqliteStub(apiproxy_stub.APIProxyStub):
       raise apiproxy_errors.ApplicationError(datastore_pb.Error.BAD_REQUEST,
                                              "Index doesn't exist.")
 
-    conn = self.__GetConnection(None)
+    conn = self._GetConnection(None)
     try:
       self.__WriteIndexData(conn, app_id)
     finally:
-      self.__ReleaseConnection(conn, None)
+      self._ReleaseConnection(conn, None)
     self.__index_lock.acquire()
     try:
       self.__indexes[app_id][kind].remove(my_index)

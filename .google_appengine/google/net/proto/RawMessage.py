@@ -78,6 +78,6 @@ class RawMessage(ProtocolBuffer.ProtocolMessage):
   def __ne__(self, other):
     return not (self == other)
 
-  def ByteSize(self):
+  def ByteSize(self, unused_assume_required_exists=True):
     return len(self.__contents)
 

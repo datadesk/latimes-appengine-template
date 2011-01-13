@@ -54,8 +54,8 @@ def GenerateIndexFromHistory(query_history,
       containing indexes for which we should not generate output.  May be None.
 
   Returns:
-    A string representation that can safely be appended to an
-    existing index.yaml file.
+    A string representation that can safely be appended to an existing
+    index.yaml file. Returns the empty string if it would generate no output.
   """
 
   all_keys = datastore_index.IndexDefinitionsToKeys(all_indexes)
@@ -72,6 +72,9 @@ def GenerateIndexFromHistory(query_history,
           indexes[key] += count
         else:
           indexes[key] = count
+
+  if not indexes:
+    return ''
 
   res = []
   for (kind, ancestor, props), count in sorted(indexes.iteritems()):
@@ -91,7 +94,7 @@ class IndexYamlUpdater(object):
   """
 
   index_yaml_is_manual = False
-  index_yaml_mtime = 0
+  index_yaml_mtime = None
   last_history_size = 0
 
   def __init__(self, root_path):
@@ -145,8 +148,8 @@ class IndexYamlUpdater(object):
       return
 
     if self.index_yaml_is_manual and not index_yaml_changed:
-        logging.debug('Will not update manual index.yaml')
-        return
+      logging.debug('Will not update manual index.yaml')
+      return
 
     if index_yaml_mtime is None:
       index_yaml_data = None
@@ -194,6 +197,10 @@ class IndexYamlUpdater(object):
 
     automatic_part = GenerateIndexFromHistory(query_history,
                                               all_indexes, manual_indexes)
+
+    if index_yaml_mtime is None and automatic_part == '':
+      logging.debug('No need to update index.yaml')
+      return
 
     try:
       fh = openfile(index_yaml_file, 'w')

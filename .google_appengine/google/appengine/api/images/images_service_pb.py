@@ -650,6 +650,8 @@ class OutputSettings(ProtocolBuffer.ProtocolMessage):
 
   has_mime_type_ = 0
   mime_type_ = 0
+  has_quality_ = 0
+  quality_ = 0
 
   def __init__(self, contents=None):
     if contents is not None: self.MergeFromString(contents)
@@ -667,15 +669,31 @@ class OutputSettings(ProtocolBuffer.ProtocolMessage):
 
   def has_mime_type(self): return self.has_mime_type_
 
+  def quality(self): return self.quality_
+
+  def set_quality(self, x):
+    self.has_quality_ = 1
+    self.quality_ = x
+
+  def clear_quality(self):
+    if self.has_quality_:
+      self.has_quality_ = 0
+      self.quality_ = 0
+
+  def has_quality(self): return self.has_quality_
+
 
   def MergeFrom(self, x):
     assert x is not self
     if (x.has_mime_type()): self.set_mime_type(x.mime_type())
+    if (x.has_quality()): self.set_quality(x.quality())
 
   def Equals(self, x):
     if x is self: return 1
     if self.has_mime_type_ != x.has_mime_type_: return 0
     if self.has_mime_type_ and self.mime_type_ != x.mime_type_: return 0
+    if self.has_quality_ != x.has_quality_: return 0
+    if self.has_quality_ and self.quality_ != x.quality_: return 0
     return 1
 
   def IsInitialized(self, debug_strs=None):
@@ -685,21 +703,29 @@ class OutputSettings(ProtocolBuffer.ProtocolMessage):
   def ByteSize(self):
     n = 0
     if (self.has_mime_type_): n += 1 + self.lengthVarInt64(self.mime_type_)
+    if (self.has_quality_): n += 1 + self.lengthVarInt64(self.quality_)
     return n + 0
 
   def Clear(self):
     self.clear_mime_type()
+    self.clear_quality()
 
   def OutputUnchecked(self, out):
     if (self.has_mime_type_):
       out.putVarInt32(8)
       out.putVarInt32(self.mime_type_)
+    if (self.has_quality_):
+      out.putVarInt32(16)
+      out.putVarInt32(self.quality_)
 
   def TryMerge(self, d):
     while d.avail() > 0:
       tt = d.getVarInt32()
       if tt == 8:
         self.set_mime_type(d.getVarInt32())
+        continue
+      if tt == 16:
+        self.set_quality(d.getVarInt32())
         continue
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
@@ -708,6 +734,7 @@ class OutputSettings(ProtocolBuffer.ProtocolMessage):
   def __str__(self, prefix="", printElemNumber=0):
     res=""
     if self.has_mime_type_: res+=prefix+("mime_type: %s\n" % self.DebugFormatInt32(self.mime_type_))
+    if self.has_quality_: res+=prefix+("quality: %s\n" % self.DebugFormatInt32(self.quality_))
     return res
 
 
@@ -715,16 +742,19 @@ class OutputSettings(ProtocolBuffer.ProtocolMessage):
     return tuple([sparse.get(i, default) for i in xrange(0, 1+maxtag)])
 
   kmime_type = 1
+  kquality = 2
 
   _TEXT = _BuildTagLookupTable({
     0: "ErrorCode",
     1: "mime_type",
-  }, 1)
+    2: "quality",
+  }, 2)
 
   _TYPES = _BuildTagLookupTable({
     0: ProtocolBuffer.Encoder.NUMERIC,
     1: ProtocolBuffer.Encoder.NUMERIC,
-  }, 1, ProtocolBuffer.Encoder.MAX_TYPE)
+    2: ProtocolBuffer.Encoder.NUMERIC,
+  }, 2, ProtocolBuffer.Encoder.MAX_TYPE)
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""

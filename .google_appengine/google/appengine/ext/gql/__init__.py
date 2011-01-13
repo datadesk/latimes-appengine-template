@@ -164,7 +164,8 @@ class GQL(object):
 
   __ANCESTOR = -1
 
-  def __init__(self, query_string, _app=None, _auth_domain=None):
+  def __init__(self, query_string, _app=None, _auth_domain=None,
+               namespace=None):
     """Ctor.
 
     Parses the input query into the class as a pre-compiled query, allowing
@@ -173,6 +174,7 @@ class GQL(object):
 
     Args:
       query_string: properly formatted GQL query string.
+      namespace: the namespace to use for this query.
 
     Raises:
       datastore_errors.BadQueryError: if the query is not parsable.
@@ -185,6 +187,7 @@ class GQL(object):
     self.__limit = -1
     self.__hint = ''
     self.__app = _app
+    self.__namespace = namespace
     self.__auth_domain = _auth_domain
 
     self.__symbols = self.TOKENIZE_REGEX.findall(query_string)
@@ -195,7 +198,7 @@ class GQL(object):
     else:
       pass
 
-  def Bind(self, args, keyword_args, cursor=None):
+  def Bind(self, args, keyword_args, cursor=None, end_cursor=None):
     """Bind the existing query to the argument list.
 
     Assumes that the input args are first positional, then a dictionary.
@@ -231,7 +234,9 @@ class GQL(object):
       queries.append(datastore.Query(self._entity,
                                      _app=self.__app,
                                      keys_only=self._keys_only,
-                                     cursor=cursor))
+                                     namespace=self.__namespace,
+                                     cursor=cursor,
+                                     end_cursor=end_cursor))
 
     logging.log(LOG_LEVEL,
                 'Binding with %i positional args %s and %i keywords %s'
@@ -328,7 +333,9 @@ class GQL(object):
   def __CastKey(self, values):
     """Cast input values to Key() class using encoded string or tuple list."""
     if not len(values) % 2:
-      return datastore_types.Key.from_path(_app=self.__app, *values)
+      return datastore_types.Key.from_path(_app=self.__app,
+                                           namespace=self.__namespace,
+                                           *values)
     elif len(values) == 1 and isinstance(values[0], basestring):
       return datastore_types.Key(values[0])
     else:

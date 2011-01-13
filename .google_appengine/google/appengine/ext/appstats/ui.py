@@ -67,8 +67,8 @@ class SummaryHandler(webapp.RequestHandler):
   def get(self):
     recording.dont_record()
 
-    if not self.request.path.endswith('stats/'):
-      self.redirect('stats/')
+    if not self.request.path.endswith('/'):
+      self.redirect(self.request.path + '/')
       return
 
     summaries = recording.load_summary_protos()

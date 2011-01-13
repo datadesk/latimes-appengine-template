@@ -45,27 +45,89 @@ http://www.djangoproject.com/documentation/templates/
 import md5
 import os
 
-try:
-  from django import v0_96
-except ImportError:
-  pass
-import django
+from google.appengine.api import lib_config
+from google.appengine.ext import webapp
 
-import django.conf
-try:
-  django.conf.settings.configure(
-    DEBUG=False,
-    TEMPLATE_DEBUG=False,
-    TEMPLATE_LOADERS=(
-      'django.template.loaders.filesystem.load_template_source',
-    ),
-  )
-except (EnvironmentError, RuntimeError):
-  pass
+
+def _django_setup():
+  """Imports and configures Django.
+
+  This can be overridden by defining a function named
+  webapp_django_setup() in the app's appengine_config.py file (see
+  lib_config docs).  Such a function should import and configure
+  Django.
+
+  You can also just configure the Django version to be used by setting
+  webapp_django_version in that file.
+
+  Finally, calling use_library('django', <version>) in that file
+  should also work, followed by code to configure Django settings:
+
+    # The first two sections of this example are taken from
+    # http://code.google.com/appengine/docs/python/tools/libraries.html#Django
+
+    import os
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+
+    from google.appengine.dist import use_library
+    use_library('django', '1.1')
+
+    # This last section is necessary to be able to switch between
+    # Django and webapp.template freely, regardless of which was
+    # imported first.
+
+    from django.conf import settings
+    settings._target = None
+
+  If your application also imports Django directly it should ensure
+  that the same code is executed before your app imports Django
+  (directly or indirectly).  Perhaps the simplest way to ensure that
+  is to include the following in your main.py (and in each alternate
+  main script):
+
+    from google.appengine.ext.webapp import template
+    import django
+
+  This will ensure that whatever Django setup code you have included
+  in appengine_config.py is executed, as a side effect of importing
+  the webapp.template module.
+  """
+  django_version = _config_handle.django_version
+
+  if django_version is not None:
+    from google.appengine.dist import use_library
+    use_library('django', str(django_version))
+  else:
+    try:
+      from django import v0_96
+    except ImportError:
+      pass
+
+  import django
+
+  import django.conf
+  try:
+    django.conf.settings.configure(
+      DEBUG=False,
+      TEMPLATE_DEBUG=False,
+      TEMPLATE_LOADERS=(
+        'django.template.loaders.filesystem.load_template_source',
+      ),
+    )
+  except (EnvironmentError, RuntimeError):
+    pass
+
+_config_handle = lib_config.register(
+    'webapp',
+    {'django_setup': _django_setup,
+     'django_version': None,
+     })
+
+_config_handle.django_setup()
+
+
 import django.template
 import django.template.loader
-
-from google.appengine.ext import webapp
 
 def render(template_path, template_dict, debug=False):
   """Renders the template at the given path with the given dict of values.

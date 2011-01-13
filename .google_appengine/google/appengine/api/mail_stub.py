@@ -34,6 +34,9 @@ import smtplib
 from google.appengine.api import apiproxy_stub
 
 
+MAX_REQUEST_SIZE = 32 << 20
+
+
 class MailServiceStub(apiproxy_stub.APIProxyStub):
   """Python only mail service stub.
 
@@ -66,7 +69,8 @@ class MailServiceStub(apiproxy_stub.APIProxyStub):
       show_mail_body: Whether to show mail body in log.
       service_name: Service name expected for all calls.
     """
-    super(MailServiceStub, self).__init__(service_name)
+    super(MailServiceStub, self).__init__(service_name,
+                                          max_request_size=MAX_REQUEST_SIZE)
     self._smtp_host = host
     self._smtp_port = port
     self._smtp_user = user

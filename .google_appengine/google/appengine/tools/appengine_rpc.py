@@ -18,7 +18,10 @@
 """Tool for performing authenticated RPCs against App Engine."""
 
 
+import google
+
 import cookielib
+import fancy_urllib
 import logging
 import os
 import re
@@ -29,19 +32,6 @@ import urllib2
 
 from google.appengine.tools import dev_appserver_login
 
-https_handler = urllib2.HTTPSHandler
-uses_cert_verification = False
-certpath = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..',
-    '..', 'lib', 'cacerts', 'cacerts.txt'))
-cert_file_available = os.path.exists(certpath)
-try:
-  import https_wrapper
-  if cert_file_available:
-    https_handler = lambda: https_wrapper.CertValidatingHTTPSHandler(
-        ca_certs=certpath)
-    uses_cert_verification = True
-except ImportError:
-  pass
 
 logger = logging.getLogger('google.appengine.tools.appengine_rpc')
 
@@ -109,7 +99,8 @@ class AbstractRpcServer(object):
 
   def __init__(self, host, auth_function, user_agent, source,
                host_override=None, extra_headers=None, save_cookies=False,
-               auth_tries=3, account_type=None, debug_data=True, secure=True):
+               auth_tries=3, account_type=None, debug_data=True, secure=True,
+               rpc_tries=3):
     """Creates a new HttpRpcServer.
 
     Args:
@@ -129,6 +120,8 @@ class AbstractRpcServer(object):
       auth_tries: The number of times to attempt auth_function before failing.
       account_type: One of GOOGLE, HOSTED_OR_GOOGLE, or None for automatic.
       debug_data: Whether debugging output should include data contents.
+      rpc_tries: The number of rpc retries upon http server error (i.e.
+        Response code >= 500 and < 600) before failing.
     """
     if secure:
       self.scheme = "https"
@@ -141,6 +134,7 @@ class AbstractRpcServer(object):
     self.authenticated = False
     self.auth_tries = auth_tries
     self.debug_data = debug_data
+    self.rpc_tries = rpc_tries
 
     self.account_type = account_type
 
@@ -172,7 +166,7 @@ class AbstractRpcServer(object):
 
   def _CreateRequest(self, url, data=None):
     """Creates a new urllib request."""
-    req = urllib2.Request(url, data=data)
+    req = fancy_urllib.FancyRequest(url, data=data)
     if self.host_override:
       req.add_header("Host", self.host_override)
     for key, value in self.extra_headers.iteritems():
@@ -334,22 +328,23 @@ class AbstractRpcServer(object):
       auth_tried = False
       while True:
         tries += 1
-        args = dict(kwargs)
-        url = "%s://%s%s?%s" % (self.scheme, self.host, request_path,
-                                urllib.urlencode(args))
+        url = "%s://%s%s" % (self.scheme, self.host, request_path)
+        if kwargs:
+          url += "?" + urllib.urlencode(kwargs)
         req = self._CreateRequest(url=url, data=payload)
         req.add_header("Content-Type", content_type)
         req.add_header("X-appcfg-api-version", "1")
         try:
-          logger.debug('Sending HTTP request:\n%s' %
+          logger.debug('Sending %s request:\n%s',
+                       self.scheme.upper(),
                        HttpRequestToString(req, include_data=self.debug_data))
           f = self.opener.open(req)
           response = f.read()
           f.close()
           return response
         except urllib2.HTTPError, e:
-          logger.debug("Got http error, this is try #%s" % tries)
-          if tries > self.auth_tries:
+          logger.debug("Got http error, this is try #%s", tries)
+          if tries > self.rpc_tries:
             raise
           elif e.code == 401:
             if auth_tried:
@@ -363,13 +358,8 @@ class AbstractRpcServer(object):
               raise
             auth_tried = True
             loc = e.info()["location"]
-            logger.debug("Got 302 redirect. Location: %s" % loc)
+            logger.debug("Got 302 redirect. Location: %s", loc)
             if loc.startswith("https://www.google.com/accounts/ServiceLogin"):
-              self._Authenticate()
-            elif re.match(r"https://www.google.com/a/google.com/ServiceLogin",
-                          loc):
-              self.account_type = os.getenv("APPENGINE_RPC_HOSTED_LOGIN_TYPE",
-                                            "HOSTED_OR_GOOGLE")
               self._Authenticate()
             elif re.match(r"https://www.google.com/a/[a-z0-9.-]+/ServiceLogin",
                           loc):
@@ -378,6 +368,8 @@ class AbstractRpcServer(object):
               self._Authenticate()
             elif loc.startswith("http://%s/_ah/login" % (self.host,)):
               self._DevAppServerAuthenticate()
+            else:
+              raise
           else:
             raise
     finally:
@@ -389,9 +381,23 @@ class HttpRpcServer(AbstractRpcServer):
 
   DEFAULT_COOKIE_FILE_PATH = "~/.appcfg_cookies"
 
+  def __init__(self, *args, **kwargs):
+    self.certpath = os.path.normpath(os.path.join(
+        os.path.dirname(__file__), '..', '..', '..', 'lib', 'cacerts',
+        'cacerts.txt'))
+    self.cert_file_available = os.path.exists(self.certpath)
+    super(HttpRpcServer, self).__init__(*args, **kwargs)
+
+  def _CreateRequest(self, url, data=None):
+    """Creates a new urllib request."""
+    req = super(HttpRpcServer, self)._CreateRequest(url, data)
+    if self.cert_file_available and fancy_urllib.can_validate_certs():
+      req.set_ssl_info(ca_certs=self.certpath)
+    return req
+
   def _Authenticate(self):
     """Save the cookie jar after authentication."""
-    if cert_file_available and not uses_cert_verification:
+    if self.cert_file_available and not fancy_urllib.can_validate_certs():
       logger.warn("""ssl module not found.
 Without the ssl module, the identity of the remote host cannot be verified, and
 connections may NOT be secure. To fix this, please install the ssl module from
@@ -399,7 +405,7 @@ http://pypi.python.org/pypi/ssl .
 To learn more, see http://code.google.com/appengine/kb/general.html#rpcssl .""")
     super(HttpRpcServer, self)._Authenticate()
     if self.cookie_jar.filename is not None and self.save_cookies:
-      logger.info("Saving authentication cookies to %s" %
+      logger.info("Saving authentication cookies to %s",
                   self.cookie_jar.filename)
       self.cookie_jar.save()
 
@@ -410,11 +416,11 @@ To learn more, see http://code.google.com/appengine/kb/general.html#rpcssl .""")
       A urllib2.OpenerDirector object.
     """
     opener = urllib2.OpenerDirector()
-    opener.add_handler(urllib2.ProxyHandler())
+    opener.add_handler(fancy_urllib.FancyProxyHandler())
     opener.add_handler(urllib2.UnknownHandler())
     opener.add_handler(urllib2.HTTPHandler())
     opener.add_handler(urllib2.HTTPDefaultErrorHandler())
-    opener.add_handler(https_handler())
+    opener.add_handler(fancy_urllib.FancyHTTPSHandler())
     opener.add_handler(urllib2.HTTPErrorProcessor())
 
     if self.save_cookies:
@@ -425,7 +431,7 @@ To learn more, see http://code.google.com/appengine/kb/general.html#rpcssl .""")
         try:
           self.cookie_jar.load()
           self.authenticated = True
-          logger.info("Loaded authentication cookies from %s" %
+          logger.info("Loaded authentication cookies from %s",
                       self.cookie_jar.filename)
         except (OSError, IOError, cookielib.LoadError), e:
           logger.debug("Could not load authentication cookies; %s: %s",

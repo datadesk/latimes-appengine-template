@@ -23,6 +23,11 @@ their types.  See the class's doc string for more information."""
 from google.net.proto import ProtocolBuffer
 import logging
 
+try:
+  from google3.net.proto import _net_proto___parse__python
+except ImportError:
+  _net_proto___parse__python = None
+
 TAG_BEGIN_ITEM_GROUP = 11
 TAG_END_ITEM_GROUP   = 12
 TAG_TYPE_ID          = 16
@@ -274,6 +279,26 @@ class MessageSet(ProtocolBuffer.ProtocolMessage):
         continue
       if (tag == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       decoder.skipData(tag)
+
+  def _CToASCII(self, output_format):
+    if _net_proto___parse__python is None:
+      return ProtocolBuffer.ProtocolMessage._CToASCII(self, output_format)
+    else:
+      return _net_proto___parse__python.ToASCII(
+          self, "MessageSetInternal", output_format)
+
+  def ParseASCII(self, s):
+    if _net_proto___parse__python is None:
+      ProtocolBuffer.ProtocolMessage.ParseASCII(self, s)
+    else:
+      _net_proto___parse__python.ParseASCII(self, "MessageSetInternal", s)
+
+  def ParseASCIIIgnoreUnknown(self, s):
+    if _net_proto___parse__python is None:
+      ProtocolBuffer.ProtocolMessage.ParseASCIIIgnoreUnknown(self, s)
+    else:
+      _net_proto___parse__python.ParseASCIIIgnoreUnknown(
+          self, "MessageSetInternal", s)
 
   def __str__(self, prefix="", printElemNumber=0):
     text = ""

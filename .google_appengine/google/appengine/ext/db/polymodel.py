@@ -307,7 +307,7 @@ class PolyModel(db.Model):
       try:
         poly_class = _class_map[key]
       except KeyError:
-        raise db.KindError('No implementation for class \'%s\'' % key)
+        raise db.KindError('No implementation for class \'%s\'' % (key,))
       return poly_class.from_entity(entity)
     return super(PolyModel, cls).from_entity(entity)
 

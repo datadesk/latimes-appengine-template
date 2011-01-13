@@ -72,6 +72,7 @@ from google.appengine.api import apiproxy_rpc
 from google.appengine.api import apiproxy_stub_map
 from google.appengine.datastore import datastore_pb
 from google.appengine.ext.remote_api import remote_api_pb
+from google.appengine.ext.remote_api import remote_api_services
 from google.appengine.runtime import apiproxy_errors
 from google.appengine.tools import appengine_rpc
 
@@ -369,6 +370,7 @@ class RemoteDatastoreStub(RemoteStub):
     finally:
       self.__local_tx_lock.release()
     transaction.set_handle(txid)
+    transaction.set_app(request.app())
 
   def _Dynamic_Commit(self, transaction, transaction_response):
     txid = transaction.handle()
@@ -430,17 +432,7 @@ class RemoteDatastoreStub(RemoteStub):
         'The remote datastore does not support index manipulation.')
 
 
-ALL_SERVICES = set([
-    'capability_service',
-    'datastore_v3',
-    'images',
-    'mail',
-    'memcache',
-    'taskqueue',
-    'urlfetch',
-    'xmpp',
-])
-
+ALL_SERVICES = set(remote_api_services.SERVICE_PB_MAP)
 
 def ConfigureRemoteApi(app_id,
                        path,
@@ -476,6 +468,10 @@ def ConfigureRemoteApi(app_id,
       services are configured; by default all supported services are configured.
     default_auth_domain: The authentication domain to use by default.
     save_cookies: Forwarded to rpc_server_factory function.
+
+  Returns:
+    server, the server created by rpc_server_factory, which may be useful for
+      calling the application directly.
 
   Raises:
     urllib2.HTTPError: if app_id is not provided and there is an error while
@@ -529,6 +525,8 @@ def ConfigureRemoteApi(app_id,
   stub = RemoteStub(server, path)
   for service in services:
     apiproxy_stub_map.apiproxy.RegisterStub(service, stub)
+
+  return server
 
 
 def MaybeInvokeAuthentication():

@@ -121,7 +121,7 @@ class ZipHandler(webapp.RequestHandler):
     if zipfile_object is None:
       try:
         zipfile_object = zipfile.ZipFile(zipfilename)
-      except (IOError, RuntimeError), err:
+      except (IOError, RuntimeError, zipfile.BadZipfile), err:
         logging.error('Can\'t open zipfile %s: %s', zipfilename, err)
         zipfile_object = ''
       self.zipfile_cache[zipfilename] = zipfile_object

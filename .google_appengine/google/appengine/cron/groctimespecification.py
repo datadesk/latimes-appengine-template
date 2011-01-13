@@ -320,7 +320,7 @@ class SpecificTimeSpecification(TimeSpecification):
             out = self.timezone.localize(out)
           except NonExistentTimeError:
             for _ in range(24):
-              out = out.replace(minute=1) + datetime.timedelta(minutes=60)
+              out = out + datetime.timedelta(minutes=60)
               try:
                 out = self.timezone.localize(out)
               except NonExistentTimeError:

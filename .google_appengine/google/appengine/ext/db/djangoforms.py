@@ -213,13 +213,31 @@ class Property(db.Property):
     return value
 
 
-class UserProperty(db.Property):
-  """This class exists solely to log a warning when it is used."""
+class UserProperty(db.UserProperty):
+  __metaclass__ = monkey_patch
 
-  def __init__(self, *args, **kwds):
-    logging.warn("Please don't use modelforms.UserProperty; "
-                 "use db.UserProperty instead.")
-    super(UserProperty, self).__init__(*args, **kwds)
+  def get_form_field(self, **kwargs):
+    """Return a Django form field appropriate for a User property.
+
+    This defaults to a forms.EmailField instance, except if auto_current_user or
+    auto_current_user_add is set, in which case None is returned, as such
+    'auto' fields should not be rendered as part of the form.
+    """
+    if self.auto_current_user or self.auto_current_user_add:
+      return None
+    defaults = {'form_class': forms.EmailField}
+    defaults.update(kwargs)
+    return super(UserProperty, self).get_form_field(**defaults)
+
+  def get_value_for_form(self, instance):
+    """Extract the property value from the instance for use in a form.
+
+    This returns the email address of the User.
+    """
+    value = super(UserProperty, self).get_value_for_form(instance)
+    if not value:
+      return None
+    return value.email()
 
 
 class StringProperty(db.StringProperty):

@@ -40,6 +40,7 @@ EXTRA_PATHS = [
   DIR_PATH,
   os.path.join(DIR_PATH, 'lib', 'antlr3'),
   os.path.join(DIR_PATH, 'lib', 'django'),
+  os.path.join(DIR_PATH, 'lib', 'fancy_urllib'),
   os.path.join(DIR_PATH, 'lib', 'ipaddr'),
   os.path.join(DIR_PATH, 'lib', 'webob'),
   os.path.join(DIR_PATH, 'lib', 'yaml', 'lib'),

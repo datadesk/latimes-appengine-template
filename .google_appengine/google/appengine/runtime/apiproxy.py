@@ -29,6 +29,7 @@ from google.appengine import runtime
 from google.appengine.api import apiproxy_rpc
 from google3.apphosting.runtime import _apphosting_runtime___python__apiproxy
 from google.appengine.runtime import apiproxy_errors
+from google.net.proto2.python.public import message
 
 OK                =  0
 RPC_FAILED        =  1
@@ -42,6 +43,7 @@ OVER_QUOTA        =  8
 REQUEST_TOO_LARGE =  9
 CAPABILITY_DISABLED = 10
 FEATURE_DISABLED = 11
+RESPONSE_TOO_LARGE = 12
 
 _ExceptionsMap = {
   RPC_FAILED:
@@ -68,6 +70,9 @@ _ExceptionsMap = {
   REQUEST_TOO_LARGE:
   (apiproxy_errors.RequestTooLargeError,
   "The request to API call %s.%s() was too large."),
+  RESPONSE_TOO_LARGE:
+  (apiproxy_errors.ResponseTooLargeError,
+  "The response from API call %s.%s() was too large."),
 
 
 
@@ -78,6 +83,9 @@ _ExceptionsMap = {
 
 
 }
+
+PROTO_BASE_CLASSES = (ProtocolBuffer.ProtocolMessage, message.Message)
+
 
 class RPC(apiproxy_rpc.RPC):
   """A RPC object, suitable for talking to remote services.
@@ -121,16 +129,28 @@ class RPC(apiproxy_rpc.RPC):
     return True
 
   def _MakeCallImpl(self):
-    assert isinstance(self.request, ProtocolBuffer.ProtocolMessage)
-    assert isinstance(self.response, ProtocolBuffer.ProtocolMessage)
+    assert isinstance(self.request, PROTO_BASE_CLASSES), 'not isinstance(%r, %r): sys.modules=%r, sys.path=%r' % (
+            self.request.__class__,
+            PROTO_BASE_CLASSES,
+            sys.modules,
+            sys.path)
+    assert isinstance(self.response, PROTO_BASE_CLASSES), 'not isinstance(%r, %r): sys.modules=%r, sys.path=%r' % (
+            self.response.__class__,
+            PROTO_BASE_CLASSES,
+            sys.modules,
+            sys.path)
 
-    e = ProtocolBuffer.Encoder()
-    self.request.Output(e)
+    if isinstance(self.request, ProtocolBuffer.ProtocolMessage):
+      e = ProtocolBuffer.Encoder()
+      self.request.Output(e)
+      request_data = e.buffer()
+    else:
+      request_data = self.request.SerializeToString()
 
     self.__state = RPC.RUNNING
 
     _apphosting_runtime___python__apiproxy.MakeCall(
-        self.package, self.call, e.buffer(), self.__result_dict,
+        self.package, self.call, request_data, self.__result_dict,
         self.__MakeCallDone, self, deadline=(self.deadline or -1))
 
   def __MakeCallDone(self):

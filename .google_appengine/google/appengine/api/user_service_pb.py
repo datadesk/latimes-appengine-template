@@ -23,6 +23,7 @@ __pychecker__ = """maxreturns=0 maxbranches=0 no-callinit
                    unusednames=printElemNumber,debug_strs no-special"""
 
 from google.appengine.api.api_base_pb import *
+import google.appengine.api.api_base_pb
 class UserServiceError(ProtocolBuffer.ProtocolMessage):
 
   OK           =    0
@@ -103,7 +104,7 @@ class CreateLoginURLRequest(ProtocolBuffer.ProtocolMessage):
   has_auth_domain_ = 0
   auth_domain_ = ""
   has_federated_identity_ = 0
-  federated_identity_ = "google.com"
+  federated_identity_ = ""
 
   def __init__(self, contents=None):
     if contents is not None: self.MergeFromString(contents)
@@ -143,7 +144,7 @@ class CreateLoginURLRequest(ProtocolBuffer.ProtocolMessage):
   def clear_federated_identity(self):
     if self.has_federated_identity_:
       self.has_federated_identity_ = 0
-      self.federated_identity_ = "google.com"
+      self.federated_identity_ = ""
 
   def has_federated_identity(self): return self.has_federated_identity_
 

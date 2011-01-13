@@ -23,6 +23,7 @@ __pychecker__ = """maxreturns=0 maxbranches=0 no-callinit
                    unusednames=printElemNumber,debug_strs no-special"""
 
 from google.appengine.api.api_base_pb import *
+import google.appengine.api.api_base_pb
 class BlobstoreServiceError(ProtocolBuffer.ProtocolMessage):
 
   OK           =    0

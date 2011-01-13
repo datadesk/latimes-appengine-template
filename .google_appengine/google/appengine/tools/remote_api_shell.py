@@ -22,6 +22,8 @@ Usage:
 """
 
 
+from google.appengine.tools import os_compat
+
 import atexit
 import code
 import getpass
@@ -60,6 +62,9 @@ def main(argv):
   parser.add_option('-s', '--server', dest='server',
                     help='The hostname your app is deployed on. '
                          'Defaults to <app_id>.appspot.com.')
+  parser.add_option('--secure', dest='secure', action="store_true",
+                    default=False, help='Use HTTPS when communicating '
+                                        'with the server.')
   (options, args) = parser.parse_args()
 
   if not args or len(args) > 2:
@@ -76,7 +81,7 @@ def main(argv):
 
   remote_api_stub.ConfigureRemoteApi(appid, path, auth_func,
                                      servername=options.server,
-                                     save_cookies=True)
+                                     save_cookies=True, secure=options.secure)
   remote_api_stub.MaybeInvokeAuthentication()
 
   os.environ['SERVER_SOFTWARE'] = 'Development (remote_api_shell)/1.0'

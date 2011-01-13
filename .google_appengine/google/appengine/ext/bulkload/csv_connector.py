@@ -182,13 +182,19 @@ class CsvConnector(connector_interface.ConnectorInterface):
                                          **self.import_options)
     discard_line = self.skip_import_header_row and not self.from_header
 
+    line_number = 0
     for input_dict in self.dict_generator:
+      line_number = line_number + 1
       if discard_line:
         discard_line = False
         continue
 
       decoded_dict = {}
       for key, value in input_dict.iteritems():
+        if key == None:
+          raise bulkloader_errors.InvalidImportData(
+              'Got more values in row than headers on line %d.'
+              % (line_number))
         if not self.column_list:
           key = unicode(key, 'utf-8')
         if value:
@@ -229,5 +235,3 @@ class CsvConnector(connector_interface.ConnectorInterface):
 
   def finalize_export(self):
     self.output_stream.close()
-
-

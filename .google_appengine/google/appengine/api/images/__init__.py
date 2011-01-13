@@ -89,6 +89,14 @@ class InvalidBlobKeyError(Error):
   """The provided blob key was invalid."""
 
 
+class BlobKeyRequiredError(Error):
+  """A blobkey is required for this operation."""
+
+
+class UnsupportedSizeError(Error):
+  """Specified size is not supported by requested operation."""
+
+
 class Image(object):
   """Image object to manipulate."""
 
@@ -470,11 +478,13 @@ class Image(object):
     else:
       imagedata.set_content(self._image_data)
 
-  def execute_transforms(self, output_encoding=PNG):
+  def execute_transforms(self, output_encoding=PNG, quality=None):
     """Perform transformations on given image.
 
     Args:
       output_encoding: A value from OUTPUT_ENCODING_TYPES.
+      quality: A value between 1 and 100 to specify the quality of the
+      encoding.  This value is only used for JPEG quality control.
 
     Returns:
       str, image data after the transformations have been performed on it.
@@ -496,6 +506,12 @@ class Image(object):
     if not self._transforms:
       raise BadRequestError("Must specify at least one transformation.")
 
+    if quality is not None:
+        if not isinstance(quality, (int, long)):
+          raise TypeError("Quality must be an integer.")
+        if quality > 100 or quality < 1:
+          raise BadRequestError("Quality must be between 1 and 100.")
+
     request = images_service_pb.ImagesTransformRequest()
     response = images_service_pb.ImagesTransformResponse()
 
@@ -505,6 +521,10 @@ class Image(object):
       request.add_transform().CopyFrom(transform)
 
     request.mutable_output().set_mime_type(output_encoding)
+
+    if ((output_encoding == JPEG) and
+        (quality is not None)):
+      request.mutable_output().set_quality(quality)
 
     try:
       apiproxy_stub_map.MakeSyncCall("images",
@@ -720,7 +740,7 @@ def im_feeling_lucky(image_data, output_encoding=PNG):
   image.im_feeling_lucky()
   return image.execute_transforms(output_encoding=output_encoding)
 
-def composite(inputs, width, height, color=0, output_encoding=PNG):
+def composite(inputs, width, height, color=0, output_encoding=PNG, quality=None):
   """Composite one or more images onto a canvas.
 
   Args:
@@ -739,6 +759,8 @@ def composite(inputs, width, height, color=0, output_encoding=PNG):
     color: canvas background color encoded as a 32 bit unsigned int where each
     color channel is represented by one byte in order ARGB.
     output_encoding: a value from OUTPUT_ENCODING_TYPES.
+    quality: A value between 1 and 100 to specify the quality of the
+    encoding.  This value is only used for JPEG quality control.
 
   Returns:
       str, image data of the composited image.
@@ -758,6 +780,12 @@ def composite(inputs, width, height, color=0, output_encoding=PNG):
   if output_encoding not in OUTPUT_ENCODING_TYPES:
     raise BadRequestError("Output encoding type '%s' not in recognized set "
                           "%s" % (output_encoding, OUTPUT_ENCODING_TYPES))
+
+  if quality is not None:
+    if not isinstance(quality, (int, long)):
+      raise TypeError("Quality must be an integer.")
+    if quality > 100 or quality < 1:
+      raise BadRequestError("Quality must be between 1 and 100.")
 
   if not inputs:
     raise BadRequestError("Must provide at least one input")
@@ -817,6 +845,10 @@ def composite(inputs, width, height, color=0, output_encoding=PNG):
   request.mutable_canvas().set_height(height)
   request.mutable_canvas().set_color(color)
 
+  if ((output_encoding == JPEG) and
+        (quality is not None)):
+      request.mutable_canvas().mutable_output().set_quality(quality)
+
   try:
     apiproxy_stub_map.MakeSyncCall("images",
                                    "Composite",
@@ -863,3 +895,94 @@ def histogram(image_data):
   """
   image = Image(image_data)
   return image.histogram()
+
+
+IMG_SERVING_SIZES_LIMIT = 1600
+
+IMG_SERVING_SIZES = [
+    32, 48, 64, 72, 80, 90, 94, 104, 110, 120, 128, 144,
+    150, 160, 200, 220, 288, 320, 400, 512, 576, 640, 720,
+    800, 912, 1024, 1152, 1280, 1440, 1600]
+
+IMG_SERVING_CROP_SIZES = [32, 48, 64, 72, 80, 104, 136, 144, 150, 160]
+
+
+def get_serving_url(blob_key,
+                    size=None,
+                    crop=False):
+  """Obtain a url that will serve the underlying image.
+
+  This URL is served by a high-performance dynamic image serving infrastructure.
+  This URL format also allows dynamic resizing and crop with certain
+  restrictions. To get dynamic resizing and cropping, specify size and crop
+  arguments, or simply append options to the end of the default url obtained via
+  this call.  Here is an example:
+
+  get_serving_url -> "http://lh3.ggpht.com/SomeCharactersGoesHere"
+
+  To get a 32 pixel sized version (aspect-ratio preserved) simply append
+  "=s32" to the url:
+
+  "http://lh3.ggpht.com/SomeCharactersGoesHere=s32"
+
+  To get a 32 pixel cropped version simply append "=s32-c":
+
+  "http://lh3.ggpht.com/SomeCharactersGoesHere=s32-c"
+
+  Available sizes are any interger in the range [0, 1600] and is available as
+  IMG_SERVING_SIZES_LIMIT.
+
+  Args:
+    size: int, size of resulting images
+    crop: bool, True requests a cropped image, False a resized one.
+
+  Returns:
+    str, a url
+
+  Raises:
+    BlobKeyRequiredError: when no blobkey was specified in the ctor.
+    UnsupportedSizeError: when size parameters uses unsupported sizes.
+    BadRequestError: when crop/size are present in wrong combination.
+  """
+  if not blob_key:
+    raise BlobKeyRequiredError("A Blobkey is required for this operation.")
+
+  if crop and not size:
+    raise BadRequestError("Size should be set for crop operation")
+
+  if size and (size > IMG_SERVING_SIZES_LIMIT or size < 0):
+    raise UnsupportedSizeError("Unsupported size")
+
+  request = images_service_pb.ImagesGetUrlBaseRequest()
+  response = images_service_pb.ImagesGetUrlBaseResponse()
+
+  request.set_blob_key(blob_key)
+
+  try:
+    apiproxy_stub_map.MakeSyncCall("images",
+                                   "GetUrlBase",
+                                   request,
+                                   response)
+  except apiproxy_errors.ApplicationError, e:
+    if (e.application_error ==
+        images_service_pb.ImagesServiceError.NOT_IMAGE):
+      raise NotImageError()
+    elif (e.application_error ==
+          images_service_pb.ImagesServiceError.BAD_IMAGE_DATA):
+      raise BadImageError()
+    elif (e.application_error ==
+          images_service_pb.ImagesServiceError.IMAGE_TOO_LARGE):
+      raise LargeImageError()
+    elif (e.application_error ==
+          images_service_pb.ImagesServiceError.INVALID_BLOB_KEY):
+      raise InvalidBlobKeyError()
+    else:
+      raise Error()
+  url = response.url()
+
+  if size:
+    url += "=s%s" % size
+  if crop:
+    url += "-c"
+
+  return url

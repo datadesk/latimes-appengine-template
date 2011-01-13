@@ -80,40 +80,81 @@
   </div>
   {% endif %}
 
-  {% if kinds or in_production %}
   <form action="{{ request.path }}" method="get">
+  {% if kinds or in_production %}
     <div id="datastore_search">
-      {% if namespace %}
-      <div class="field">
-        <span class="name">Namespace</span>
-        <input name="namespace" type="text" size="20" value="{{ namespace|escape }}"/>
-      </div>
-      {% endif %}
-      <span class="field">
-        <span class="name">Entity Kind:</span>
-        <span class="value">
-          {% if in_production %}
-          <input id="kind_input" name="kind" type="text" size="8" value="{{ kind|escape }}" onkeyup="manageCreateButton()" onkeydown="manageCreateButton()"/>
-          {% else %}
-          <select name="kind" id="kind_input">
-            {% for a_kind in kinds %}
-            <option value="{{ a_kind|escape }}"{% ifequal a_kind kind %} selected="selected"{% endifequal %}>{{ a_kind|escape }}</option>
-            {% endfor %}
-          </select>
+      <table>
+        <tr>
+          {% if show_namespace %}
+          <td>
+            <span class="name">Namespace</span>
+          </td>
           {% endif %}
-        </span>
-      </span>
-      <span class="buttons">
-        <input type="submit" value="List Entities"/>
-        <input type="button" id="create_button"  onclick="location.href='{{ datastore_edit_path }}?namespace={{ namespace|escape }}&amp;kind=' + encodeURIComponent(document.getElementById('kind_input').value) + '&amp;next={{ request.uri|urlencode }}'" value="Create New Entity"/>
-      </span>
+          <td>
+            <span class="name">Entity Kind:</span>
+          </td>
+        </tr>
+        <tr>
+          {% if show_namespace %}
+          <td>
+            <span class="value">
+              <input id="namespace_input" name="namespace" type="text" size="20" value="{{ namespace|escape }}"/>
+            </span>
+          </td>
+          {% endif %}
+          <td align="right">
+            <span class="value">
+              {% if in_production %}
+              <input id="kind_input" name="kind" type="text" size="8" value="{{ kind|escape }}" onkeyup="manageCreateButton()" onkeydown="manageCreateButton()"/>
+              {% else %}
+              <select name="kind" id="kind_input">
+                {% for a_kind in kinds %}
+                <option value="{{ a_kind|escape }}"{% ifequal a_kind kind %} selected="selected"{% endifequal %}>{{ a_kind|escape }}</option>
+                {% endfor %}
+              </select>
+              {% endif %}
+            </span>
+          </td>
+          <td>
+            <span class="buttons">
+              <input type="submit" value="List Entities"/>
+              <input type="button" id="create_button" onclick="location.href='{{ datastore_edit_path }}?' + (document.getElementById('namespace_input') ? 'namespace=' + encodeURIComponent(document.getElementById('namespace_input').value) + '&amp;' : '') + 'kind=' + encodeURIComponent(document.getElementById('kind_input').value) + '&amp;next={{ request.uri|urlencode }}'" value="Create New Entity"/>
+            </span>
+          </td>
+        </tr>
+        {% if not show_namespace %}
+        <tr>
+          <td colspan="3">
+            <a id="select_namespace"
+              href="/_ah/admin/datastore?namespace=&kind={{ kind|escape }}">Select different namespace</a>
+          </td>
+        </tr>
+        {% endif %}
+      </table>
     </div>
-  </form>
-  {% else %}
-  <div id="datastore_empty">
-    The datastore is empty.  You need to add data programatically before you can use this tool to view and edit it.
-  </div>
+    {% else %}
+    <div id="datastore_empty">
+      {% if namespace %}
+        Datastore has no entities in namespace
+        &quot;{{ namespace|escape }}&quot;.
+      {% else %}
+        Datastore has no entities in the Empty namespace. You need to
+        add data programatically before you can use this tool to view
+        and edit it.
+      {% endif %}
+      <br>
+      {% if show_namespace %}
+      <span class="value">
+        <input id="namespace_input" name="namespace" type="text" size="20" value="{{ namespace|escape }}"/>
+        <input type="submit" value="Change Namespace"/>
+      </span>
+      {% else %}
+      <a id="select_namespace"
+        href="/_ah/admin/datastore?namespace=">Select different namespace</a>
+      {% endif %}
+    </div>
   {% endif %}
+  </form>
 
   {% if entities %}
     <form action="{{ datastore_batch_edit_path }}" method="post">
@@ -166,8 +207,15 @@
         </div>
     </form>
   {% else %}
-    {% if kind %}
-      <p style="font-size: medium">Sorry, there are no entities of kind &quot;{{ kind|escape }}&quot; in your datastore.</p>
+    {% if kind and kinds %}
+    <p id="no_kind" style="font-size: medium">
+      Datastore contains no entities of kind &quot;{{ kind|escape }}&quot; in the
+      {% if namespace %}
+        namespace &quot;{{ namespace|escape }}&quot;.
+      {% else %}
+        Empty namespace.
+      {% endif %}
+    </p>
     {% endif %}
   {% endif %}
 {% endblock %}
@@ -179,8 +227,14 @@
   {% if in_production %}
   manageCreateButton();
   {% endif %}
+
+  {% if entities %}
   updateDeleteButtonAndCheckbox();
+  {% endif %}
+
+  {% if kinds or in_production %}
   document.getElementById("kind_input").focus();
+  {% endif %}
 
   //]]>
   </script>

@@ -26,6 +26,7 @@ except ImportError:
   simplejson = None
 
 from google.appengine.api import datastore
+from google.appengine.api import namespace_manager
 from google.appengine.datastore import datastore_pb
 from google.appengine.ext import db
 
@@ -41,6 +42,7 @@ class KeyRangeError(Error):
 class SimplejsonUnavailableError(Error):
   """Error while using json functionality whith unavailable simplejson."""
 
+
 class KeyRange(object):
   """Represents a range of keys in the datastore.
 
@@ -49,15 +51,17 @@ class KeyRange(object):
   and a scan direction (KeyRange.DESC or KeyRange.ASC).
   """
 
-  DESC = 'DESC'
-  ASC = 'ASC'
+  DESC = "DESC"
+  ASC = "ASC"
 
   def __init__(self,
                key_start=None,
                key_end=None,
                direction=None,
                include_start=True,
-               include_end=True):
+               include_end=True,
+               namespace=None,
+               _app=None):
     """Initialize a KeyRange object.
 
     Args:
@@ -66,6 +70,8 @@ class KeyRange(object):
       direction: The direction of the query for this range.
       include_start: Whether the start key should be included in the range.
       include_end: Whether the end key should be included in the range.
+      namespace: The namespace for this range. If None then the current
+          namespace is used.
     """
     if direction is None:
       direction = KeyRange.ASC
@@ -75,26 +81,42 @@ class KeyRange(object):
     self.key_end = key_end
     self.include_start = include_start
     self.include_end = include_end
+    if namespace is not None:
+      self.namespace = namespace
+    else:
+      self.namespace = namespace_manager.get_namespace()
+    self._app = _app
 
   def __str__(self):
     if self.include_start:
-      left_side = '['
+      left_side = "["
     else:
-      left_side = '('
+      left_side = "("
     if self.include_end:
-      right_side = ']'
+      right_side = "]"
     else:
-      right_side = '('
-    return '%s%s%s-%s%s' % (self.direction, left_side, repr(self.key_start),
-                            repr(self.key_end), right_side)
+      right_side = "("
+    return "%s%s%r to %r%s" % (self.direction, left_side, self.key_start,
+                               self.key_end, right_side)
 
   def __repr__(self):
-    return ('key_range.KeyRange(key_start=%s,key_end=%s,direction=%s,'
-            'include_start=%s,include_end=%s)') % (repr(self.key_start),
-                                                   repr(self.key_end),
-                                                   repr(self.direction),
-                                                   repr(self.include_start),
-                                                   repr(self.include_end))
+    return ("key_range.KeyRange(key_start=%r,key_end=%r,direction=%r,"
+            "include_start=%r,include_end=%r, namespace=%r)") % (
+                self.key_start,
+                self.key_end,
+                self.direction,
+                self.include_start,
+                self.include_end,
+                self.namespace)
+
+  def advance(self, key):
+    """Updates the start of the range immediately past the specified key.
+
+    Args:
+      key: A db.Key.
+    """
+    self.include_start = False
+    self.key_start = key
 
   def filter_query(self, query):
     """Add query filter to restrict to this key range.
@@ -107,17 +129,17 @@ class KeyRange(object):
     """
     assert isinstance(query, db.Query)
     if self.include_start:
-      start_comparator = '>='
+      start_comparator = ">="
     else:
-      start_comparator = '>'
+      start_comparator = ">"
     if self.include_end:
-      end_comparator = '<='
+      end_comparator = "<="
     else:
-      end_comparator = '<'
+      end_comparator = "<"
     if self.key_start:
-      query.filter('__key__ %s' % start_comparator, self.key_start)
+      query.filter("__key__ %s" % start_comparator, self.key_start)
     if self.key_end:
-      query.filter('__key__ %s' % end_comparator, self.key_end)
+      query.filter("__key__ %s" % end_comparator, self.key_end)
     return query
 
   def filter_datastore_query(self, query):
@@ -131,17 +153,17 @@ class KeyRange(object):
     """
     assert isinstance(query, datastore.Query)
     if self.include_start:
-      start_comparator = '>='
+      start_comparator = ">="
     else:
-      start_comparator = '>'
+      start_comparator = ">"
     if self.include_end:
-      end_comparator = '<='
+      end_comparator = "<="
     else:
-      end_comparator = '<'
+      end_comparator = "<"
     if self.key_start:
-      query.update({'__key__ %s' % start_comparator: self.key_start})
+      query.update({"__key__ %s" % start_comparator: self.key_start})
     if self.key_end:
-      query.update({'__key__ %s' % end_comparator: self.key_end})
+      query.update({"__key__ %s" % end_comparator: self.key_end})
     return query
 
   def __get_direction(self, asc, desc):
@@ -162,13 +184,14 @@ class KeyRange(object):
     elif self.direction == KeyRange.DESC:
       return desc
     else:
-      raise KeyRangeError('KeyRange direction unexpected: %s', self.direction)
+      raise KeyRangeError("KeyRange direction unexpected: %s", self.direction)
 
-  def make_directed_query(self, kind_class):
+  def make_directed_query(self, kind_class, keys_only=False):
     """Construct a query for this key range, including the scan direction.
 
     Args:
       kind_class: A kind implementation class.
+      keys_only: bool, default False, use keys_only on Query?
 
     Returns:
       A db.Query instance.
@@ -176,9 +199,10 @@ class KeyRange(object):
     Raises:
       KeyRangeError: if self.direction is not in (KeyRange.ASC, KeyRange.DESC).
     """
-    direction = self.__get_direction('', '-')
-    query = db.Query(kind_class)
-    query.order('%s__key__' % direction)
+    assert self._app is None, '_app is not supported for db.Query'
+    direction = self.__get_direction("", "-")
+    query = db.Query(kind_class, namespace=self.namespace, keys_only=keys_only)
+    query.order("%s__key__" % direction)
 
     query = self.filter_query(query)
     return query
@@ -198,23 +222,25 @@ class KeyRange(object):
     """
     direction = self.__get_direction(datastore.Query.ASCENDING,
                                      datastore.Query.DESCENDING)
-    query = datastore.Query(kind, keys_only=keys_only)
-    query.Order(('__key__', direction))
+    query = datastore.Query(kind, _app=self._app, keys_only=keys_only)
+    query.Order(("__key__", direction))
 
     query = self.filter_datastore_query(query)
     return query
 
-  def make_ascending_query(self, kind_class):
+  def make_ascending_query(self, kind_class, keys_only=False):
     """Construct a query for this key range without setting the scan direction.
 
     Args:
       kind_class: A kind implementation class.
+      keys_only: bool, default False, query only for keys.
 
     Returns:
       A db.Query instance.
     """
-    query = db.Query(kind_class)
-    query.order('__key__')
+    assert self._app is None, '_app is not supported for db.Query'
+    query = db.Query(kind_class, namespace=self.namespace, keys_only=keys_only)
+    query.order("__key__")
 
     query = self.filter_query(query)
     return query
@@ -229,8 +255,11 @@ class KeyRange(object):
     Returns:
       A datastore.Query instance.
     """
-    query = datastore.Query(kind, keys_only=keys_only)
-    query.Order(('__key__', datastore.Query.ASCENDING))
+    query = datastore.Query(kind,
+                            namespace=self.namespace,
+                            _app=self._app,
+                            keys_only=keys_only)
+    query.Order(("__key__", datastore.Query.ASCENDING))
 
     query = self.filter_datastore_query(query)
     return query
@@ -287,11 +316,20 @@ class KeyRange(object):
                        include_start=include_start,
                        key_end=end,
                        include_end=include_end,
-                       direction=direction)
+                       direction=direction,
+                       namespace=self.namespace,
+                       _app=self._app)
               for (start, include_start, end, include_end, direction)
               in key_pairs]
 
     return ranges
+
+  def __hash__(self):
+    return hash([self.key_start,
+                 self.key_end,
+                 self.direction,
+                 self._app,
+                 self.namespace])
 
   def __cmp__(self, other):
     """Compare two key ranges.
@@ -314,7 +352,8 @@ class KeyRange(object):
       return 1
 
     self_list = [self.key_start, self.key_end, self.direction,
-                 self.include_start, self.include_end]
+                 self.include_start, self.include_end, self._app,
+                 self.namespace]
     if not self.key_start:
       self_list[3] = False
     if not self.key_end:
@@ -324,7 +363,9 @@ class KeyRange(object):
                   other.key_end,
                   other.direction,
                   other.include_start,
-                  other.include_end]
+                  other.include_end,
+                  other._app,
+                  other.namespace]
     if not other.key_start:
       other_list[3] = False
     if not other.key_end:
@@ -363,8 +404,8 @@ class KeyRange(object):
     """
     if start == end:
       return start
-    start += '\0'
-    end += '\0'
+    start += "\0"
+    end += "\0"
     midpoint = []
     expected_max = 127
     for i in xrange(min(len(start), len(end))):
@@ -384,7 +425,7 @@ class KeyRange(object):
             ord_split = (0xFFFF + ord_start) / 2
           midpoint.append(unichr(ord_split))
         break
-    return ''.join(midpoint)
+    return "".join(midpoint)
 
   @staticmethod
   def split_keys(key_start, key_end, batch_size):
@@ -410,6 +451,7 @@ class KeyRange(object):
       A db.Key instance, k, such that key_start <= k <= key_end.
     """
     assert key_start.app() == key_end.app()
+    assert key_start.namespace() == key_end.namespace()
     path1 = key_start.to_path()
     path2 = key_end.to_path()
     len1 = len(path1)
@@ -442,7 +484,9 @@ class KeyRange(object):
         out_path.append(id_or_name_split)
         break
 
-    return db.Key.from_path(*out_path)
+    return db.Key.from_path(
+        *out_path,
+        **{"_app": key_start.app(), "namespace": key_start.namespace()})
 
   @staticmethod
   def _split_id_or_name(id_or_name1, id_or_name2, batch_size, maintain_batches):
@@ -472,9 +516,88 @@ class KeyRange(object):
           isinstance(id_or_name2, basestring)):
       return KeyRange.bisect_string_range(id_or_name1, id_or_name2)
     else:
-      assert (isinstance(id_or_name1, (int, long)) and
-              isinstance(id_or_name2, basestring))
-      return unichr(0)
+      if (not isinstance(id_or_name1, (int, long)) or
+          not isinstance(id_or_name2, basestring)):
+        raise KeyRangeError("Wrong key order: %r, %r" %
+                            (id_or_name1, id_or_name2))
+      zero_ch = unichr(0)
+      if id_or_name2 == zero_ch:
+        return (id_or_name1 + 2**63 - 1) / 2
+      return zero_ch
+
+  @staticmethod
+  def guess_end_key(kind,
+                    key_start,
+                    probe_count=30,
+                    split_rate=5):
+    """Guess the end of a key range with a binary search of probe queries.
+
+    When the 'key_start' parameter has a key hierarchy, this function will
+    only determine the key range for keys in a similar hierarchy. That means
+    if the keys are in the form:
+
+      kind=Foo, name=bar/kind=Stuff, name=meep
+
+    only this range will be probed:
+
+      kind=Foo, name=*/kind=Stuff, name=*
+
+    That means other entities of kind 'Stuff' that are children of another
+    parent entity kind will be skipped:
+
+      kind=Other, name=cookie/kind=Stuff, name=meep
+
+    Args:
+      key_start: The starting key of the search range. In most cases this
+        should be id = 0 or name = '\0'.
+      kind: String name of the entity kind.
+      probe_count: Optional, how many probe queries to run.
+      split_rate: Exponential rate to use for splitting the range on the
+        way down from the full key space. For smaller ranges this should
+        be higher so more of the keyspace is skipped on initial descent.
+
+    Returns:
+      datastore.Key that is guaranteed to be as high or higher than the
+      highest key existing for this Kind. Doing a query between 'key_start' and
+      this returned Key (inclusive) will contain all entities of this Kind.
+    """
+    app = key_start.app()
+    namespace = key_start.namespace()
+
+    full_path = key_start.to_path()
+    for index, piece in enumerate(full_path):
+      if index % 2 == 0:
+        continue
+      elif isinstance(piece, basestring):
+        full_path[index] = u"\xffff"
+      else:
+        full_path[index] = 2**63 - 1
+
+    key_end = datastore.Key.from_path(*full_path,
+                                      **{"_app": app, "namespace": namespace})
+    split_key = key_end
+
+    for i in xrange(probe_count):
+      for j in xrange(split_rate):
+        split_key = KeyRange.split_keys(key_start, split_key, 1)
+      results = datastore.Query(
+          kind,
+          {"__key__ >": split_key},
+          namespace=namespace,
+          _app=app,
+          keys_only=True).Get(1)
+      if results:
+        if results[0].name() and not key_start.name():
+          return KeyRange.guess_end_key(
+              kind, results[0], probe_count - 1, split_rate)
+        else:
+          split_rate = 1
+          key_start = results[0]
+          split_key = key_end
+      else:
+        key_end = split_key
+
+    return key_end
 
   def to_json(self):
     """Serialize KeyRange to json.
@@ -492,13 +615,18 @@ class KeyRange(object):
       else:
         return None
 
-    return simplejson.dumps({
+    obj_dict = {
         "direction": self.direction,
         "key_start": key_to_str(self.key_start),
         "key_end": key_to_str(self.key_end),
         "include_start": self.include_start,
         "include_end": self.include_end,
-        }, sort_keys=True)
+        "namespace": self.namespace,
+        }
+    if self._app:
+      obj_dict["_app"] = self._app
+
+    return simplejson.dumps(obj_dict, sort_keys=True)
 
 
   @staticmethod
@@ -526,4 +654,6 @@ class KeyRange(object):
                     key_from_str(json["key_end"]),
                     json["direction"],
                     json["include_start"],
-                    json["include_end"])
+                    json["include_end"],
+                    json.get("namespace"),
+                    _app=json.get("_app"))
