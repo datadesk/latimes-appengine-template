@@ -104,6 +104,7 @@ INSTALLED_APPS = (
      'django.contrib.humanize',
      'appengine_django',
      'toolbox',
+     'search',
 )
 
 #SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
