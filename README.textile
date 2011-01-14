@@ -51,3 +51,13 @@ $ python2.5 manage.py runserver</code></pre>
 
 The check it out at "http://localhost:8000":http://localhost:8000. You should see "this":http://www.ibm.com/developerworks/opensource/library/os-django/fig01.jpg.
 
+h2. If that fails...
+
+I'm trying to get this thing to work via pip, but if that fails you can instead:
+
+# Download this repo.
+# Copy the appengine_template to wherever you want your project folder to be
+# Move the google_appengine subdirectory to .google_appengine
+# Put your app_id into the app.yaml file
+
+And that'll pretty much do it.
