@@ -17,6 +17,6 @@ h2. Features
 * Includes "Google App Engine Helper for Django":http://code.google.com/p/google-app-engine-django/
 * Includes "pytz tuned for google app engine":http://code.google.com/p/gae-pytz/
 * Includes a modified version of "appengine-search":https://github.com/DocSavage/appengine-search for full-text search
-* Includes a toolbox of utilities commonly used "@latimes":http://www.latimes.com
+* Includes a toolbox of utilities commonly used "@latimes":http://www.latimes.com, like BeautifulSoup and Universal Feed Parser.
 
 h2. Instructions
