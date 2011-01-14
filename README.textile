@@ -42,7 +42,7 @@ h3. 02. Install the app
 h3. 03. Create your project
 
 From the shell, enter:
-<pre><code>startappengineproject hello-appengine</code></pre>
+<pre><code>$ startappengineproject hello-appengine</code></pre>
 
 h3. 04. Fire up the Django runserver
 
