@@ -1,0 +1,15 @@
+pyporter2: A python implementation of the Porter2 stemmer.
+
+See http://snowball.tartarus.org/algorithms/english/stemmer.html
+
+USAGE
+-----
+>>> import Stemmer
+>>> stemmer = Stemmer.Stemmer('english')
+>>> stemmer.stemWord('stemming')
+'stem'
+
+UNIT TESTS
+----------
+To run the unit tests do:
+> python Stemmer.py
