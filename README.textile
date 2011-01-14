@@ -19,4 +19,35 @@ h2. Features
 * Includes a modified version of "appengine-search":https://github.com/DocSavage/appengine-search for full-text search
 * Includes a toolbox of utilities commonly used "@latimes":http://www.latimes.com, like BeautifulSoup and Universal Feed Parser.
 
-h2. Instructions
+h2. Requirements
+
+* python2.5. "In Ubuntu, where I work, App Engine seems to only work with python2.5":http://www.codigomanso.com/en/2010/05/google-app-engine-en-ubuntu-10-4-lucid-lynx/
+* "virtualenv":http://pypi.python.org/pypi/virtualenv
+* "pip":http://pypi.python.org/pypi/pip/0.8.2
+
+h2. Installation
+
+h3. 01. Create a virtualenv to operate in
+
+I'm going to call this test project 'hello-appengine'
+<pre><code>$ virtualenv --no-site-packages hello-appengine
+$ cd hello-appengine
+$ . bin/activate
+</code></pre>
+
+h3. 02. Install the app
+
+<pre><code>$ pip install latimes-appengine-template</code></pre>
+
+h3. 03. Create your project
+
+From the shell, enter:
+<pre><code>startappengineproject hello-appengine</code></pre>
+
+h3. 04. Fire up the Django runserver
+
+<pre><code>$ cd project
+$ python2.5 manage.py runserver</code></pre>
+
+The check it out at http://localhost:8000:"http://localhost:8000". You should see "this":http://www.ibm.com/developerworks/opensource/library/os-django/fig01.jpg.
+
