@@ -21,7 +21,7 @@ h2. Features
 
 h2. Requirements
 
-* python2.5. "In Ubuntu, where I work, App Engine seems to only work with python2.5":http://www.codigomanso.com/en/2010/05/google-app-engine-en-ubuntu-10-4-lucid-lynx/
+* python2.5. "In Ubuntu 10.10, where I work, App Engine seems to only work with python2.5":http://www.codigomanso.com/en/2010/05/google-app-engine-en-ubuntu-10-4-lucid-lynx/
 * "virtualenv":http://pypi.python.org/pypi/virtualenv
 * "pip":http://pypi.python.org/pypi/pip/0.8.2
 
