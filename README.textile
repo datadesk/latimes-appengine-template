@@ -57,7 +57,7 @@ I'm trying to get this thing to work via pip, but if that fails you can instead:
 
 # Download this repo.
 # Copy the appengine_template to wherever you want your project folder to be
-# Move the google_appengine subdirectory to .google_appengine
+# Rename the google_appengine subdirectory to .google_appengine
 # Put your app_id into the app.yaml file
 
 And that'll pretty much do it.
