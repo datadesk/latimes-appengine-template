@@ -13,7 +13,7 @@ Beware. This software is in beta testing and hasn't been used much. But don't le
 
 h2. Features
 
-* Creates a ready-to-roll App Engine project with a single command.
+* Creates a ready-to-roll "App Engine":http://code.google.com/appengine/ project with a single command.
 * Includes "Google App Engine Helper for Django":http://code.google.com/p/google-app-engine-django/
 * Includes "pytz tuned for google app engine":http://code.google.com/p/gae-pytz/
 * Includes a modified version of "appengine-search":https://github.com/DocSavage/appengine-search for full-text search
