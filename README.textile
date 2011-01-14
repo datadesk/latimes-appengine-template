@@ -5,7 +5,9 @@
    \_/ \_/ .__/| .__/ \___|_| |_|\__, |_|_| |_|\___|  \/   \___|_| |_| |_| .__/|_|\__,_|\__\___|
          |_|   |_|               |___/                                   |_|                    </code></pre>
 
-Bootstrap a Google App Engine project with Django and other goodies.
+Bootstrap a Google App Engine project with Django and other goodies. 
+
+Used by Los Angeles Times websites like "crime.latimes.com/":http://crime.latimes.com/ and "documents.latimes.com/":http://documents.latimes.com/
 
 Beware. This software is in beta testing and hasn't been used much. But don't let that stop you! Please try it and tell me what sucks.
 
