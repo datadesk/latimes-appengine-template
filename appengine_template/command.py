@@ -27,8 +27,7 @@ def execute_from_command_line():
     print "$ python2.5 manage.py runserver"
     print "Visit http://localhost:8000 in your browser"
 
-config_template = """
-application: %s
+config_template = """application: %s
 version: 1
 runtime: python
 api_version: 1
