@@ -1,4 +1,3 @@
 include MANIFEST.in
 include README.textile
 recursive-include appengine_template *
-recursive-include appengine_template/.google_appengine *
