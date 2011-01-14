@@ -4,3 +4,17 @@
    /  _  \ |_) | |_) |  __/ | | | (_| | | | | |  __/  / / |  __/ | | | | | |_) | | (_| | ||  __/
    \_/ \_/ .__/| .__/ \___|_| |_|\__, |_|_| |_|\___|  \/   \___|_| |_| |_| .__/|_|\__,_|\__\___|
          |_|   |_|               |___/                                   |_|                    </code></pre>
+
+Bootstrap a Google App Engine project with Django and other goodies.
+
+Beware. This software is in beta testing and hasn't been used much. But don't let that stop you! Please try it and tell me what sucks.
+
+h2. Features
+
+* Creates a ready-to-roll App Engine project with a single command.
+* Includes "Google App Engine Helper for Django":http://code.google.com/p/google-app-engine-django/
+* Includes "pytz tuned for google app engine":http://code.google.com/p/gae-pytz/
+* Includes a modified version of "appengine-search":https://github.com/DocSavage/appengine-search for full-text search
+* Includes a toolbox of utilities commonly used "@latimes":http://www.latimes.com
+
+h2. Instructions
