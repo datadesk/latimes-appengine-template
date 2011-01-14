@@ -49,5 +49,5 @@ h3. 04. Fire up the Django runserver
 <pre><code>$ cd project
 $ python2.5 manage.py runserver</code></pre>
 
-The check it out at http://localhost:8000:"http://localhost:8000". You should see "this":http://www.ibm.com/developerworks/opensource/library/os-django/fig01.jpg.
+The check it out at "http://localhost:8000":http://localhost:8000. You should see "this":http://www.ibm.com/developerworks/opensource/library/os-django/fig01.jpg.
 
