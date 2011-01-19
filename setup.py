@@ -76,7 +76,7 @@ if len(sys.argv) > 1 and sys.argv[1] == 'bdist_wininst':
 
 setup(
       name='latimes-appengine-template',
-      version='0.012',
+      version='0.013',
       description='A basic template to start a new Django application hosted by Google App Engine.',
       author='Ben Welsh',
       author_email='ben.welsh@gmail.com',
