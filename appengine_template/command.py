@@ -11,7 +11,11 @@ def execute_from_command_line():
     print "Building new app: %s" % app_id
     current_dir = os.path.dirname(os.path.realpath(__file__))
     # Clear out any preexisting project
-    os.system('rm -rf ./project')
+    try:
+        os.mkdir('project')
+    except OSError, e:
+        print "Sorry. Project directory already exists."
+        exit()
     # Copy in the template
     os.system('cp -R %s ./project' % current_dir)
     # Move the SDK to a dot folder
