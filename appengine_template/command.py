@@ -9,15 +9,17 @@ def execute_from_command_line():
         sys.exit(-1)
     app_id = args[0]
     print "Building new app: %s" % app_id
-    current_dir = os.path.dirname(os.path.realpath(__file__))
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir[-1] != '/':
+        current_dir += '/'
     # Clear out any preexisting project
-    try:
-        os.mkdir('project')
-    except OSError, e:
+    if os.path.isdir("project"):
         print "Sorry. Project directory already exists."
         exit()
     # Copy in the template
-    os.system('cp -R %s ./project' % current_dir)
+    cp = 'cp -R %s ./project' % current_dir
+    print cp
+    os.system(cp)
     # Move the SDK to a dot folder
     os.system('mv ./project/google_appengine/ ./project/.google_appengine/')
     # Load the app_id into the config file
