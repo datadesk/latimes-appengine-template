@@ -43,11 +43,11 @@ handlers:
   script: $PYTHON_LIB/google/appengine/ext/remote_api/handler.py 
   login: admin
 
-- url: /.*
-  script: main.py
-
 - url: /media
   static_dir: media
+
+- url: /.*
+  script: main.py
 """
 
 if __name__ == '__main__':
