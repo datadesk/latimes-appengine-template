@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """Channel support classes.
 
 Classes:
@@ -31,7 +34,9 @@ import os
 import urlparse
 
 
+
 CHANNEL_POLL_PATTERN = '/_ah/channel/dev(?:/.*)?'
+
 
 CHANNEL_JSAPI_PATTERN = '/_ah/channel/jsapi'
 
@@ -48,6 +53,8 @@ def CreateChannelDispatcher(channel_service_stub):
     New dispatcher capable of handling client polls for channel messages.
   """
 
+
+
   from google.appengine.tools import dev_appserver
 
   class ChannelDispatcher(dev_appserver.URLDispatcher):
@@ -61,6 +68,7 @@ def CreateChannelDispatcher(channel_service_stub):
         from the application.
       """
       self._channel_service_stub = channel_service_stub
+
 
     def Dispatch(self,
                  request,

@@ -15,7 +15,12 @@
 # limitations under the License.
 #
 
+
+
+
 """Utility functions shared between the file and sqlite datastore stubs."""
+
+
 
 
 
@@ -37,13 +42,22 @@ from google.appengine.runtime import apiproxy_errors
 from google.appengine.datastore import entity_pb
 
 
+
+
+
 _MAXIMUM_RESULTS = 1000
+
+
+
 
 
 _MAX_QUERY_OFFSET = 1000
 
 
+
+
 _CURSOR_CONCAT_STR = '!CURSOR!'
+
 
 _PROPERTY_TYPE_NAMES = {
     0: 'NULL',
@@ -55,6 +69,7 @@ _PROPERTY_TYPE_NAMES = {
     entity_pb.PropertyValue.kUserValueGroup: 'USER',
     entity_pb.PropertyValue.kReferenceValueGroup: 'REFERENCE'
     }
+
 
 _SCATTER_PROPORTION = 32768
 
@@ -90,6 +105,9 @@ def _GetScatterProperty(entity_proto):
   property_value = scatter_property.mutable_value()
   property_value.set_stringvalue(hash_bytes)
   return scatter_property
+
+
+
 
 
 _SPECIAL_PROPERTY_MAP = {
@@ -167,8 +185,10 @@ def ValidateQuery(query, filters, orders, max_query_components):
       datastore_types._UNAPPLIED_LOG_TIMESTAMP_SPECIAL_PROPERTY)
 
   if query.has_transaction():
+
     if not query.has_ancestor():
       BadRequest('Only ancestor queries are allowed inside transactions.')
+
 
   num_components = len(filters) + len(orders)
   if query.has_ancestor():
@@ -176,6 +196,7 @@ def ValidateQuery(query, filters, orders, max_query_components):
   if num_components > max_query_components:
     BadRequest('query is too large. may not have more than %s filters'
                ' + sort orders ancestor total' % max_query_components)
+
 
   if query.has_ancestor():
     ancestor = query.ancestor()
@@ -185,6 +206,8 @@ def ValidateQuery(query, filters, orders, max_query_components):
     if query.name_space() != ancestor.name_space():
       BadRequest('query namespace is %s but ancestor namespace is %s' %
                  (query.name_space(), ancestor.name_space()))
+
+
 
   ineq_prop_name = None
   for filter in filters:
@@ -196,6 +219,9 @@ def ValidateQuery(query, filters, orders, max_query_components):
     prop_name = prop.name().decode('utf-8')
 
     if prop_name == key_prop_name:
+
+
+
       if not prop.value().has_referencevalue():
         BadRequest('%s filter value must be a Key' % key_prop_name)
       ref_val = prop.value().referencevalue()
@@ -215,6 +241,7 @@ def ValidateQuery(query, filters, orders, max_query_components):
                     'Encountered both %s and %s') % (ineq_prop_name, prop_name))
 
   if ineq_prop_name is not None and orders:
+
     first_order_prop = orders[0].property().decode('utf-8')
     if first_order_prop != ineq_prop_name:
       BadRequest('The first sort property must be the same as the property '
@@ -223,6 +250,7 @@ def ValidateQuery(query, filters, orders, max_query_components):
                  'is on %s' % (first_order_prop, ineq_prop_name))
 
   if not query.has_kind():
+
     for filter in filters:
       prop_name = filter.property(0).name().decode('utf-8')
       if (prop_name != key_prop_name and
@@ -253,6 +281,7 @@ class ValueRange(object):
       rel_op: relational operator from datastore_pb.Query_Filter.
       limit: the value to limit the range by.
     """
+
     if rel_op == datastore_pb.Query_Filter.LESS_THAN:
       if self.__end is None or limit <= self.__end:
         self.__end = limit
@@ -328,6 +357,7 @@ def ParseKeyFilteredQuery(filters, orders):
      The key range (a ValueRange over datastore_types.Key) requested in the
      query.
   """
+
   remaining_filters = []
   key_range = ValueRange()
   key_prop = datastore_types._KEY_SPECIAL_PROPERTY
@@ -346,6 +376,7 @@ def ParseKeyFilteredQuery(filters, orders):
     limit = datastore_types.FromReferenceProperty(val)
     key_range.Update(op, limit)
 
+
   remaining_orders = []
   for o in orders:
     if not (o.direction() == datastore_pb.Query_Order.ASCENDING and
@@ -353,6 +384,8 @@ def ParseKeyFilteredQuery(filters, orders):
       remaining_orders.append(o)
     else:
       break
+
+
 
   if remaining_filters:
     raise BadRequestError(
@@ -374,6 +407,7 @@ def ParseKindQuery(query, filters, orders):
   Returns:
      The kind range (a ValueRange over string) requested in the query.
   """
+
   if query.has_ancestor():
     raise BadRequestError('ancestor queries on __kind__ not allowed')
 
@@ -411,6 +445,7 @@ def ParseNamespaceQuery(query, filters, orders):
   Returns:
      The kind range (a ValueRange over string) requested in the query.
   """
+
   if query.has_ancestor():
     raise BadRequestError('ancestor queries on __namespace__ not allowed')
 
@@ -452,6 +487,7 @@ def ParsePropertyQuery(query, filters, orders):
      The kind range (a ValueRange over (kind, property) pairs) requested
      in the query.
   """
+
   if query.has_transaction():
     raise BadRequestError('transactional queries on __property__ not allowed')
 
@@ -462,10 +498,12 @@ def ParsePropertyQuery(query, filters, orders):
     ancestor = datastore_types.Key._FromPb(query.ancestor())
     ancestor_kind, ancestor_property = _PropertyKeyToString(ancestor, None)
 
+
     if ancestor_property is not None:
       key_range.Update(datastore_pb.Query_Filter.EQUAL,
                        (ancestor_kind, ancestor_property))
     else:
+
       key_range.Update(datastore_pb.Query_Filter.GREATER_THAN_OR_EQUAL,
                        (ancestor_kind, ''))
       key_range.Update(datastore_pb.Query_Filter.LESS_THAN_OR_EQUAL,
@@ -510,6 +548,7 @@ def SynthesizeUserId(email):
   Returns:
     A string userid derived from the email address.
   """
+
   user_id_digest = _MD5_FUNC(email.lower()).digest()
   user_id = '1' + ''.join(['%02d' % ord(x) for x in user_id_digest])[:20]
   return user_id
@@ -561,9 +600,11 @@ class BaseCursor(object):
     self.app = app
     self.cursor = self._AcquireCursorID()
 
-  def PopulateCursor(self, cursor):
-    cursor.set_app(self.app)
-    cursor.set_cursor(self.cursor)
+  def PopulateCursor(self, query_result):
+    if query_result.more_results():
+      cursor = query_result.mutable_cursor()
+      cursor.set_app(self.app)
+      cursor.set_cursor(self.cursor)
 
   @classmethod
   def _AcquireCursorID(cls):
@@ -617,7 +658,9 @@ class ListCursor(BaseCursor):
     else:
       end_cursor_position = len(results)
 
+
     results = results[start_cursor_position:end_cursor_position]
+
 
     if query.has_limit():
       limit = query.limit()
@@ -630,6 +673,7 @@ class ListCursor(BaseCursor):
     self.__query = query
     self.__offset = 0
     self.__count = len(self.__results)
+
 
     self.keys_only = query.keys_only()
 
@@ -650,6 +694,7 @@ class ListCursor(BaseCursor):
     lo = 0
     hi = len(results)
     if inclusive:
+
       while lo < hi:
         mid = (lo + hi) // 2
         if compare(results[mid], cursor_entity) < 0:
@@ -657,6 +702,7 @@ class ListCursor(BaseCursor):
         else:
           hi = mid
     else:
+
       while lo < hi:
         mid = (lo + hi) // 2
         if compare(cursor_entity, results[mid]) < 0:
@@ -679,6 +725,7 @@ class ListCursor(BaseCursor):
       raise BadRequestError(error_msg % 'filters do not match')
     if query_info.order_list() != query.order_list():
       raise BadRequestError(error_msg % 'orders do not match')
+
 
     for attr in ('ancestor', 'kind', 'name_space', 'search_query'):
       query_info_has_attr = getattr(query_info, 'has_%s' % attr)
@@ -771,6 +818,7 @@ class ListCursor(BaseCursor):
     """
     if self.__last_result is not None:
       position = compiled_cursor.add_position()
+
       query_info = self._MinimalQueryInfo(query)
       entity_info = self._MinimalEntityInfo(self.__last_result, query)
       start_key = _CURSOR_CONCAT_STR.join((
@@ -799,6 +847,7 @@ class ListCursor(BaseCursor):
       offset: integer of how many results to skip
       compile: boolean, whether we are compiling this query
     """
+
     offset = min(offset, self.__count - self.__offset)
     limited_offset = min(offset, _MAX_QUERY_OFFSET)
     if limited_offset:
@@ -806,19 +855,26 @@ class ListCursor(BaseCursor):
       result.set_skipped_results(limited_offset)
 
     if offset == limited_offset and count:
+
       if count > _MAXIMUM_RESULTS:
         count = _MAXIMUM_RESULTS
       results = self.__results[self.__offset:self.__offset + count]
       count = len(results)
       self.__offset += count
+
+
+
+
+
       result.result_list().extend(results)
 
     if self.__offset:
+
       self.__last_result = self.__results[self.__offset - 1]
 
     result.set_keys_only(self.keys_only)
     result.set_more_results(self.__offset < self.__count)
-    self.PopulateCursor(result.mutable_cursor())
+    self.PopulateCursor(result)
     if compile:
       self._EncodeCompiledCursor(
           self.__query, result.mutable_compiled_cursor())

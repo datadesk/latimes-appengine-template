@@ -15,6 +15,21 @@
 # limitations under the License.
 #
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 """Code to exist off of google.appengine.dist.
 
 Kept in a separate file from the __init__ module for testing purposes.
@@ -27,6 +42,7 @@ __all__ = ['use_library']
 try:
   import distutils.version
 except ImportError:
+
   distutils = None
 
 import os
@@ -36,16 +52,33 @@ server_software = os.getenv('SERVER_SOFTWARE')
 USING_SDK = not server_software or server_software.startswith('Dev')
 del server_software
 
-if not USING_SDK:
+
+_DESIRED_DJANGO_VERSION = 'v0_96'
+
+
+try:
   import google
+except ImportError:
+  import google as google
+
+
+if not USING_SDK:
+
   this_version = os.path.dirname(os.path.dirname(google.__file__))
   versions = os.path.dirname(this_version)
   PYTHON_LIB = os.path.dirname(versions)
-  del google, this_version, versions
+  del this_version, versions
 else:
-  PYTHON_LIB = '/base/python_lib'
+
+
+  PYTHON_LIB = os.path.dirname(os.path.dirname(google.__file__))
+
+del google
+
+
 
 installed = {}
+
 
 
 def SetAllowedModule(_):
@@ -63,6 +96,11 @@ def DjangoVersion():
   Returns:
     A distutils.version.LooseVersion.
   """
+  try:
+
+    __import__('django.' + _DESIRED_DJANGO_VERSION)
+  except ImportError:
+    pass
   import django
   return distutils.version.LooseVersion('.'.join(map(str, django.VERSION)))
 
@@ -77,11 +115,25 @@ def PylonsVersion():
   return distutils.version.LooseVersion(pylons.__version__)
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 PACKAGES = {
     'django': (DjangoVersion,
                {'0.96': None,
                 '1.0': None,
                 '1.1': None,
+                '1.2': None,
                 }),
 
 
@@ -111,6 +163,11 @@ def EqualVersions(version, baseline):
   Returns:
     A bool indicating whether the versions are considered equal.
   """
+
+
+
+
+
   baseline_tuple = baseline.version
   truncated_tuple = version.version[:len(baseline_tuple)]
   if truncated_tuple == baseline_tuple:
@@ -136,11 +193,6 @@ def AllowInstalledLibrary(name, desired):
     UnacceptableVersion Error if the installed version of a package is
     unacceptable.
   """
-  if name == 'django' and desired != '0.96':
-    tail = os.path.join('lib', 'django')
-    sys.path[:] = [dirname
-                   for dirname in sys.path
-                   if not dirname.endswith(tail)]
   CallSetAllowedModule(name, desired)
   dependencies = PACKAGES[name][1][desired]
   if dependencies:
@@ -182,6 +234,9 @@ def CheckInstalledVersion(name, desired, explicit):
   """
   CallSetAllowedModule(name, desired)
   find_version = PACKAGES[name][0]
+  if name == 'django':
+    global _DESIRED_DJANGO_VERSION
+    _DESIRED_DJANGO_VERSION = 'v' + desired.replace('.', '_')
   installed_version = find_version()
   desired_version = distutils.version.LooseVersion(desired)
   if not EqualVersions(installed_version, desired_version):
@@ -193,11 +248,20 @@ def CheckInstalledVersion(name, desired, explicit):
 
 def CallSetAllowedModule(name, desired):
   """Helper to call SetAllowedModule(name), after special-casing Django."""
-  if name == 'django' and desired != '0.96':
-    tail = os.path.join('lib', 'django')
+
+  if USING_SDK and name == 'django':
+
     sys.path[:] = [dirname
                    for dirname in sys.path
-                   if not dirname.endswith(tail)]
+                   if not (dirname.startswith(PYTHON_LIB) and
+                           'django' in dirname)]
+
+
+
+
+    if desired in ('0.96', '1.2'):
+      sys.path.insert(1, os.path.join(PYTHON_LIB, 'lib',
+                                      'django_' + desired.replace('.', '_')))
   SetAllowedModule(name)
 
 
@@ -238,18 +302,28 @@ def InstallLibrary(name, version, explicit=True):
       dependency.
   """
   installed_version, explicitly_installed = installed.get(name, [None] * 2)
+
+
+
+
+
   if name in sys.modules:
     if explicit:
       CheckInstalledVersion(name, version, explicit=True)
     return
+
   elif installed_version:
     if version == installed_version:
       return
+
+
     if explicit:
       if explicitly_installed:
         raise ValueError('%s %s requested, but %s already in use' %
                          (name, version, installed_version))
       RemoveLibrary(name)
+
+
     else:
       version_ob = distutils.version.LooseVersion(version)
       installed_ob = distutils.version.LooseVersion(installed_version)
@@ -257,6 +331,7 @@ def InstallLibrary(name, version, explicit=True):
         return
       else:
         RemoveLibrary(name)
+
   AddLibrary(name, version, explicit)
   dep_details = PACKAGES[name][1][version]
   if not dep_details:
@@ -285,4 +360,12 @@ def use_library(name, version):
 
 
 if not USING_SDK:
+
+
+
+
+
+
+
+
   InstallLibrary('django', '0.96', explicit=False)

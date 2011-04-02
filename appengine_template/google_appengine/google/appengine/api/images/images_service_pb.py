@@ -15,6 +15,8 @@
 # limitations under the License.
 #
 
+
+
 from google.net.proto import ProtocolBuffer
 import array
 import dummy_thread as thread
@@ -23,6 +25,7 @@ __pychecker__ = """maxreturns=0 maxbranches=0 no-callinit
                    unusednames=printElemNumber,debug_strs no-special"""
 
 class ImagesServiceError(ProtocolBuffer.ProtocolMessage):
+
 
   UNSPECIFIED_ERROR =    1
   BAD_TRANSFORM_DATA =    2
@@ -62,7 +65,11 @@ class ImagesServiceError(ProtocolBuffer.ProtocolMessage):
 
   def ByteSize(self):
     n = 0
-    return n + 0
+    return n
+
+  def ByteSizePartial(self):
+    n = 0
+    return n
 
   def Clear(self):
     pass
@@ -70,9 +77,14 @@ class ImagesServiceError(ProtocolBuffer.ProtocolMessage):
   def OutputUnchecked(self, out):
     pass
 
+  def OutputPartial(self, out):
+    pass
+
   def TryMerge(self, d):
     while d.avail() > 0:
       tt = d.getVarInt32()
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -94,9 +106,11 @@ class ImagesServiceError(ProtocolBuffer.ProtocolMessage):
     0: ProtocolBuffer.Encoder.NUMERIC,
   }, 0, ProtocolBuffer.Encoder.MAX_TYPE)
 
+
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
 class ImagesServiceTransform(ProtocolBuffer.ProtocolMessage):
+
 
   RESIZE       =    1
   ROTATE       =    2
@@ -136,7 +150,11 @@ class ImagesServiceTransform(ProtocolBuffer.ProtocolMessage):
 
   def ByteSize(self):
     n = 0
-    return n + 0
+    return n
+
+  def ByteSizePartial(self):
+    n = 0
+    return n
 
   def Clear(self):
     pass
@@ -144,9 +162,14 @@ class ImagesServiceTransform(ProtocolBuffer.ProtocolMessage):
   def OutputUnchecked(self, out):
     pass
 
+  def OutputPartial(self, out):
+    pass
+
   def TryMerge(self, d):
     while d.avail() > 0:
       tt = d.getVarInt32()
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -167,6 +190,7 @@ class ImagesServiceTransform(ProtocolBuffer.ProtocolMessage):
   _TYPES = _BuildTagLookupTable({
     0: ProtocolBuffer.Encoder.NUMERIC,
   }, 0, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -379,7 +403,21 @@ class Transform(ProtocolBuffer.ProtocolMessage):
     if (self.has_crop_right_x_): n += 5
     if (self.has_crop_bottom_y_): n += 5
     if (self.has_autolevels_): n += 2
-    return n + 0
+    return n
+
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_width_): n += 1 + self.lengthVarInt64(self.width_)
+    if (self.has_height_): n += 1 + self.lengthVarInt64(self.height_)
+    if (self.has_rotate_): n += 1 + self.lengthVarInt64(self.rotate_)
+    if (self.has_horizontal_flip_): n += 2
+    if (self.has_vertical_flip_): n += 2
+    if (self.has_crop_left_x_): n += 5
+    if (self.has_crop_top_y_): n += 5
+    if (self.has_crop_right_x_): n += 5
+    if (self.has_crop_bottom_y_): n += 5
+    if (self.has_autolevels_): n += 2
+    return n
 
   def Clear(self):
     self.clear_width()
@@ -394,6 +432,38 @@ class Transform(ProtocolBuffer.ProtocolMessage):
     self.clear_autolevels()
 
   def OutputUnchecked(self, out):
+    if (self.has_width_):
+      out.putVarInt32(8)
+      out.putVarInt32(self.width_)
+    if (self.has_height_):
+      out.putVarInt32(16)
+      out.putVarInt32(self.height_)
+    if (self.has_rotate_):
+      out.putVarInt32(24)
+      out.putVarInt32(self.rotate_)
+    if (self.has_horizontal_flip_):
+      out.putVarInt32(32)
+      out.putBoolean(self.horizontal_flip_)
+    if (self.has_vertical_flip_):
+      out.putVarInt32(40)
+      out.putBoolean(self.vertical_flip_)
+    if (self.has_crop_left_x_):
+      out.putVarInt32(53)
+      out.putFloat(self.crop_left_x_)
+    if (self.has_crop_top_y_):
+      out.putVarInt32(61)
+      out.putFloat(self.crop_top_y_)
+    if (self.has_crop_right_x_):
+      out.putVarInt32(69)
+      out.putFloat(self.crop_right_x_)
+    if (self.has_crop_bottom_y_):
+      out.putVarInt32(77)
+      out.putFloat(self.crop_bottom_y_)
+    if (self.has_autolevels_):
+      out.putVarInt32(80)
+      out.putBoolean(self.autolevels_)
+
+  def OutputPartial(self, out):
     if (self.has_width_):
       out.putVarInt32(8)
       out.putVarInt32(self.width_)
@@ -458,6 +528,8 @@ class Transform(ProtocolBuffer.ProtocolMessage):
       if tt == 80:
         self.set_autolevels(d.getBoolean())
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -518,6 +590,7 @@ class Transform(ProtocolBuffer.ProtocolMessage):
     9: ProtocolBuffer.Encoder.FLOAT,
     10: ProtocolBuffer.Encoder.NUMERIC,
   }, 10, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -584,6 +657,14 @@ class ImageData(ProtocolBuffer.ProtocolMessage):
     if (self.has_blob_key_): n += 1 + self.lengthString(len(self.blob_key_))
     return n + 1
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_content_):
+      n += 1
+      n += self.lengthString(len(self.content_))
+    if (self.has_blob_key_): n += 1 + self.lengthString(len(self.blob_key_))
+    return n
+
   def Clear(self):
     self.clear_content()
     self.clear_blob_key()
@@ -591,6 +672,14 @@ class ImageData(ProtocolBuffer.ProtocolMessage):
   def OutputUnchecked(self, out):
     out.putVarInt32(10)
     out.putPrefixedString(self.content_)
+    if (self.has_blob_key_):
+      out.putVarInt32(18)
+      out.putPrefixedString(self.blob_key_)
+
+  def OutputPartial(self, out):
+    if (self.has_content_):
+      out.putVarInt32(10)
+      out.putPrefixedString(self.content_)
     if (self.has_blob_key_):
       out.putVarInt32(18)
       out.putPrefixedString(self.blob_key_)
@@ -604,6 +693,8 @@ class ImageData(ProtocolBuffer.ProtocolMessage):
       if tt == 18:
         self.set_blob_key(d.getPrefixedString())
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -633,9 +724,11 @@ class ImageData(ProtocolBuffer.ProtocolMessage):
     2: ProtocolBuffer.Encoder.STRING,
   }, 2, ProtocolBuffer.Encoder.MAX_TYPE)
 
+
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
 class OutputSettings(ProtocolBuffer.ProtocolMessage):
+
 
   PNG          =    0
   JPEG         =    1
@@ -704,13 +797,27 @@ class OutputSettings(ProtocolBuffer.ProtocolMessage):
     n = 0
     if (self.has_mime_type_): n += 1 + self.lengthVarInt64(self.mime_type_)
     if (self.has_quality_): n += 1 + self.lengthVarInt64(self.quality_)
-    return n + 0
+    return n
+
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_mime_type_): n += 1 + self.lengthVarInt64(self.mime_type_)
+    if (self.has_quality_): n += 1 + self.lengthVarInt64(self.quality_)
+    return n
 
   def Clear(self):
     self.clear_mime_type()
     self.clear_quality()
 
   def OutputUnchecked(self, out):
+    if (self.has_mime_type_):
+      out.putVarInt32(8)
+      out.putVarInt32(self.mime_type_)
+    if (self.has_quality_):
+      out.putVarInt32(16)
+      out.putVarInt32(self.quality_)
+
+  def OutputPartial(self, out):
     if (self.has_mime_type_):
       out.putVarInt32(8)
       out.putVarInt32(self.mime_type_)
@@ -727,6 +834,8 @@ class OutputSettings(ProtocolBuffer.ProtocolMessage):
       if tt == 16:
         self.set_quality(d.getVarInt32())
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -755,6 +864,7 @@ class OutputSettings(ProtocolBuffer.ProtocolMessage):
     1: ProtocolBuffer.Encoder.NUMERIC,
     2: ProtocolBuffer.Encoder.NUMERIC,
   }, 2, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -842,6 +952,18 @@ class ImagesTransformRequest(ProtocolBuffer.ProtocolMessage):
     n += self.lengthString(self.output_.ByteSize())
     return n + 2
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_image_):
+      n += 1
+      n += self.lengthString(self.image_.ByteSizePartial())
+    n += 1 * len(self.transform_)
+    for i in xrange(len(self.transform_)): n += self.lengthString(self.transform_[i].ByteSizePartial())
+    if (self.has_output_):
+      n += 1
+      n += self.lengthString(self.output_.ByteSizePartial())
+    return n
+
   def Clear(self):
     self.clear_image()
     self.clear_transform()
@@ -858,6 +980,20 @@ class ImagesTransformRequest(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(26)
     out.putVarInt32(self.output_.ByteSize())
     self.output_.OutputUnchecked(out)
+
+  def OutputPartial(self, out):
+    if (self.has_image_):
+      out.putVarInt32(10)
+      out.putVarInt32(self.image_.ByteSizePartial())
+      self.image_.OutputPartial(out)
+    for i in xrange(len(self.transform_)):
+      out.putVarInt32(18)
+      out.putVarInt32(self.transform_[i].ByteSizePartial())
+      self.transform_[i].OutputPartial(out)
+    if (self.has_output_):
+      out.putVarInt32(26)
+      out.putVarInt32(self.output_.ByteSizePartial())
+      self.output_.OutputPartial(out)
 
   def TryMerge(self, d):
     while d.avail() > 0:
@@ -880,6 +1016,8 @@ class ImagesTransformRequest(ProtocolBuffer.ProtocolMessage):
         d.skip(length)
         self.mutable_output().TryMerge(tmp)
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -926,6 +1064,7 @@ class ImagesTransformRequest(ProtocolBuffer.ProtocolMessage):
     3: ProtocolBuffer.Encoder.STRING,
   }, 3, ProtocolBuffer.Encoder.MAX_TYPE)
 
+
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
 class ImagesTransformResponse(ProtocolBuffer.ProtocolMessage):
@@ -968,6 +1107,13 @@ class ImagesTransformResponse(ProtocolBuffer.ProtocolMessage):
     n += self.lengthString(self.image_.ByteSize())
     return n + 1
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_image_):
+      n += 1
+      n += self.lengthString(self.image_.ByteSizePartial())
+    return n
+
   def Clear(self):
     self.clear_image()
 
@@ -975,6 +1121,12 @@ class ImagesTransformResponse(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(10)
     out.putVarInt32(self.image_.ByteSize())
     self.image_.OutputUnchecked(out)
+
+  def OutputPartial(self, out):
+    if (self.has_image_):
+      out.putVarInt32(10)
+      out.putVarInt32(self.image_.ByteSizePartial())
+      self.image_.OutputPartial(out)
 
   def TryMerge(self, d):
     while d.avail() > 0:
@@ -985,6 +1137,8 @@ class ImagesTransformResponse(ProtocolBuffer.ProtocolMessage):
         d.skip(length)
         self.mutable_image().TryMerge(tmp)
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -1013,9 +1167,11 @@ class ImagesTransformResponse(ProtocolBuffer.ProtocolMessage):
     1: ProtocolBuffer.Encoder.STRING,
   }, 1, ProtocolBuffer.Encoder.MAX_TYPE)
 
+
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
 class CompositeImageOptions(ProtocolBuffer.ProtocolMessage):
+
 
   TOP_LEFT     =    0
   TOP          =    1
@@ -1176,6 +1332,24 @@ class CompositeImageOptions(ProtocolBuffer.ProtocolMessage):
     n += self.lengthVarInt64(self.anchor_)
     return n + 9
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_source_index_):
+      n += 1
+      n += self.lengthVarInt64(self.source_index_)
+    if (self.has_x_offset_):
+      n += 1
+      n += self.lengthVarInt64(self.x_offset_)
+    if (self.has_y_offset_):
+      n += 1
+      n += self.lengthVarInt64(self.y_offset_)
+    if (self.has_opacity_):
+      n += 5
+    if (self.has_anchor_):
+      n += 1
+      n += self.lengthVarInt64(self.anchor_)
+    return n
+
   def Clear(self):
     self.clear_source_index()
     self.clear_x_offset()
@@ -1195,6 +1369,23 @@ class CompositeImageOptions(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(40)
     out.putVarInt32(self.anchor_)
 
+  def OutputPartial(self, out):
+    if (self.has_source_index_):
+      out.putVarInt32(8)
+      out.putVarInt32(self.source_index_)
+    if (self.has_x_offset_):
+      out.putVarInt32(16)
+      out.putVarInt32(self.x_offset_)
+    if (self.has_y_offset_):
+      out.putVarInt32(24)
+      out.putVarInt32(self.y_offset_)
+    if (self.has_opacity_):
+      out.putVarInt32(37)
+      out.putFloat(self.opacity_)
+    if (self.has_anchor_):
+      out.putVarInt32(40)
+      out.putVarInt32(self.anchor_)
+
   def TryMerge(self, d):
     while d.avail() > 0:
       tt = d.getVarInt32()
@@ -1213,6 +1404,8 @@ class CompositeImageOptions(ProtocolBuffer.ProtocolMessage):
       if tt == 40:
         self.set_anchor(d.getVarInt32())
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -1253,6 +1446,7 @@ class CompositeImageOptions(ProtocolBuffer.ProtocolMessage):
     4: ProtocolBuffer.Encoder.FLOAT,
     5: ProtocolBuffer.Encoder.NUMERIC,
   }, 5, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -1361,6 +1555,20 @@ class ImagesCanvas(ProtocolBuffer.ProtocolMessage):
     if (self.has_color_): n += 1 + self.lengthVarInt64(self.color_)
     return n + 3
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_width_):
+      n += 1
+      n += self.lengthVarInt64(self.width_)
+    if (self.has_height_):
+      n += 1
+      n += self.lengthVarInt64(self.height_)
+    if (self.has_output_):
+      n += 1
+      n += self.lengthString(self.output_.ByteSizePartial())
+    if (self.has_color_): n += 1 + self.lengthVarInt64(self.color_)
+    return n
+
   def Clear(self):
     self.clear_width()
     self.clear_height()
@@ -1375,6 +1583,21 @@ class ImagesCanvas(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(26)
     out.putVarInt32(self.output_.ByteSize())
     self.output_.OutputUnchecked(out)
+    if (self.has_color_):
+      out.putVarInt32(32)
+      out.putVarInt32(self.color_)
+
+  def OutputPartial(self, out):
+    if (self.has_width_):
+      out.putVarInt32(8)
+      out.putVarInt32(self.width_)
+    if (self.has_height_):
+      out.putVarInt32(16)
+      out.putVarInt32(self.height_)
+    if (self.has_output_):
+      out.putVarInt32(26)
+      out.putVarInt32(self.output_.ByteSizePartial())
+      self.output_.OutputPartial(out)
     if (self.has_color_):
       out.putVarInt32(32)
       out.putVarInt32(self.color_)
@@ -1397,6 +1620,8 @@ class ImagesCanvas(ProtocolBuffer.ProtocolMessage):
       if tt == 32:
         self.set_color(d.getVarInt32())
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -1436,6 +1661,7 @@ class ImagesCanvas(ProtocolBuffer.ProtocolMessage):
     3: ProtocolBuffer.Encoder.STRING,
     4: ProtocolBuffer.Encoder.NUMERIC,
   }, 4, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -1529,6 +1755,17 @@ class ImagesCompositeRequest(ProtocolBuffer.ProtocolMessage):
     n += self.lengthString(self.canvas_.ByteSize())
     return n + 1
 
+  def ByteSizePartial(self):
+    n = 0
+    n += 1 * len(self.image_)
+    for i in xrange(len(self.image_)): n += self.lengthString(self.image_[i].ByteSizePartial())
+    n += 1 * len(self.options_)
+    for i in xrange(len(self.options_)): n += self.lengthString(self.options_[i].ByteSizePartial())
+    if (self.has_canvas_):
+      n += 1
+      n += self.lengthString(self.canvas_.ByteSizePartial())
+    return n
+
   def Clear(self):
     self.clear_image()
     self.clear_options()
@@ -1546,6 +1783,20 @@ class ImagesCompositeRequest(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(26)
     out.putVarInt32(self.canvas_.ByteSize())
     self.canvas_.OutputUnchecked(out)
+
+  def OutputPartial(self, out):
+    for i in xrange(len(self.image_)):
+      out.putVarInt32(10)
+      out.putVarInt32(self.image_[i].ByteSizePartial())
+      self.image_[i].OutputPartial(out)
+    for i in xrange(len(self.options_)):
+      out.putVarInt32(18)
+      out.putVarInt32(self.options_[i].ByteSizePartial())
+      self.options_[i].OutputPartial(out)
+    if (self.has_canvas_):
+      out.putVarInt32(26)
+      out.putVarInt32(self.canvas_.ByteSizePartial())
+      self.canvas_.OutputPartial(out)
 
   def TryMerge(self, d):
     while d.avail() > 0:
@@ -1568,6 +1819,8 @@ class ImagesCompositeRequest(ProtocolBuffer.ProtocolMessage):
         d.skip(length)
         self.mutable_canvas().TryMerge(tmp)
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -1618,6 +1871,7 @@ class ImagesCompositeRequest(ProtocolBuffer.ProtocolMessage):
     3: ProtocolBuffer.Encoder.STRING,
   }, 3, ProtocolBuffer.Encoder.MAX_TYPE)
 
+
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
 class ImagesCompositeResponse(ProtocolBuffer.ProtocolMessage):
@@ -1660,6 +1914,13 @@ class ImagesCompositeResponse(ProtocolBuffer.ProtocolMessage):
     n += self.lengthString(self.image_.ByteSize())
     return n + 1
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_image_):
+      n += 1
+      n += self.lengthString(self.image_.ByteSizePartial())
+    return n
+
   def Clear(self):
     self.clear_image()
 
@@ -1667,6 +1928,12 @@ class ImagesCompositeResponse(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(10)
     out.putVarInt32(self.image_.ByteSize())
     self.image_.OutputUnchecked(out)
+
+  def OutputPartial(self, out):
+    if (self.has_image_):
+      out.putVarInt32(10)
+      out.putVarInt32(self.image_.ByteSizePartial())
+      self.image_.OutputPartial(out)
 
   def TryMerge(self, d):
     while d.avail() > 0:
@@ -1677,6 +1944,8 @@ class ImagesCompositeResponse(ProtocolBuffer.ProtocolMessage):
         d.skip(length)
         self.mutable_image().TryMerge(tmp)
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -1704,6 +1973,7 @@ class ImagesCompositeResponse(ProtocolBuffer.ProtocolMessage):
     0: ProtocolBuffer.Encoder.NUMERIC,
     1: ProtocolBuffer.Encoder.STRING,
   }, 1, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -1747,6 +2017,13 @@ class ImagesHistogramRequest(ProtocolBuffer.ProtocolMessage):
     n += self.lengthString(self.image_.ByteSize())
     return n + 1
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_image_):
+      n += 1
+      n += self.lengthString(self.image_.ByteSizePartial())
+    return n
+
   def Clear(self):
     self.clear_image()
 
@@ -1754,6 +2031,12 @@ class ImagesHistogramRequest(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(10)
     out.putVarInt32(self.image_.ByteSize())
     self.image_.OutputUnchecked(out)
+
+  def OutputPartial(self, out):
+    if (self.has_image_):
+      out.putVarInt32(10)
+      out.putVarInt32(self.image_.ByteSizePartial())
+      self.image_.OutputPartial(out)
 
   def TryMerge(self, d):
     while d.avail() > 0:
@@ -1764,6 +2047,8 @@ class ImagesHistogramRequest(ProtocolBuffer.ProtocolMessage):
         d.skip(length)
         self.mutable_image().TryMerge(tmp)
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -1791,6 +2076,7 @@ class ImagesHistogramRequest(ProtocolBuffer.ProtocolMessage):
     0: ProtocolBuffer.Encoder.NUMERIC,
     1: ProtocolBuffer.Encoder.STRING,
   }, 1, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -1879,7 +2165,17 @@ class ImagesHistogram(ProtocolBuffer.ProtocolMessage):
     for i in xrange(len(self.green_)): n += self.lengthVarInt64(self.green_[i])
     n += 1 * len(self.blue_)
     for i in xrange(len(self.blue_)): n += self.lengthVarInt64(self.blue_[i])
-    return n + 0
+    return n
+
+  def ByteSizePartial(self):
+    n = 0
+    n += 1 * len(self.red_)
+    for i in xrange(len(self.red_)): n += self.lengthVarInt64(self.red_[i])
+    n += 1 * len(self.green_)
+    for i in xrange(len(self.green_)): n += self.lengthVarInt64(self.green_[i])
+    n += 1 * len(self.blue_)
+    for i in xrange(len(self.blue_)): n += self.lengthVarInt64(self.blue_[i])
+    return n
 
   def Clear(self):
     self.clear_red()
@@ -1887,6 +2183,17 @@ class ImagesHistogram(ProtocolBuffer.ProtocolMessage):
     self.clear_blue()
 
   def OutputUnchecked(self, out):
+    for i in xrange(len(self.red_)):
+      out.putVarInt32(8)
+      out.putVarInt32(self.red_[i])
+    for i in xrange(len(self.green_)):
+      out.putVarInt32(16)
+      out.putVarInt32(self.green_[i])
+    for i in xrange(len(self.blue_)):
+      out.putVarInt32(24)
+      out.putVarInt32(self.blue_[i])
+
+  def OutputPartial(self, out):
     for i in xrange(len(self.red_)):
       out.putVarInt32(8)
       out.putVarInt32(self.red_[i])
@@ -1909,6 +2216,8 @@ class ImagesHistogram(ProtocolBuffer.ProtocolMessage):
       if tt == 24:
         self.add_blue(d.getVarInt32())
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -1957,6 +2266,7 @@ class ImagesHistogram(ProtocolBuffer.ProtocolMessage):
     3: ProtocolBuffer.Encoder.NUMERIC,
   }, 3, ProtocolBuffer.Encoder.MAX_TYPE)
 
+
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
 class ImagesHistogramResponse(ProtocolBuffer.ProtocolMessage):
@@ -1999,6 +2309,13 @@ class ImagesHistogramResponse(ProtocolBuffer.ProtocolMessage):
     n += self.lengthString(self.histogram_.ByteSize())
     return n + 1
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_histogram_):
+      n += 1
+      n += self.lengthString(self.histogram_.ByteSizePartial())
+    return n
+
   def Clear(self):
     self.clear_histogram()
 
@@ -2006,6 +2323,12 @@ class ImagesHistogramResponse(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(10)
     out.putVarInt32(self.histogram_.ByteSize())
     self.histogram_.OutputUnchecked(out)
+
+  def OutputPartial(self, out):
+    if (self.has_histogram_):
+      out.putVarInt32(10)
+      out.putVarInt32(self.histogram_.ByteSizePartial())
+      self.histogram_.OutputPartial(out)
 
   def TryMerge(self, d):
     while d.avail() > 0:
@@ -2016,6 +2339,8 @@ class ImagesHistogramResponse(ProtocolBuffer.ProtocolMessage):
         d.skip(length)
         self.mutable_histogram().TryMerge(tmp)
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -2043,6 +2368,7 @@ class ImagesHistogramResponse(ProtocolBuffer.ProtocolMessage):
     0: ProtocolBuffer.Encoder.NUMERIC,
     1: ProtocolBuffer.Encoder.STRING,
   }, 1, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -2090,6 +2416,13 @@ class ImagesGetUrlBaseRequest(ProtocolBuffer.ProtocolMessage):
     n += self.lengthString(len(self.blob_key_))
     return n + 1
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_blob_key_):
+      n += 1
+      n += self.lengthString(len(self.blob_key_))
+    return n
+
   def Clear(self):
     self.clear_blob_key()
 
@@ -2097,12 +2430,19 @@ class ImagesGetUrlBaseRequest(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(10)
     out.putPrefixedString(self.blob_key_)
 
+  def OutputPartial(self, out):
+    if (self.has_blob_key_):
+      out.putVarInt32(10)
+      out.putPrefixedString(self.blob_key_)
+
   def TryMerge(self, d):
     while d.avail() > 0:
       tt = d.getVarInt32()
       if tt == 10:
         self.set_blob_key(d.getPrefixedString())
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -2127,6 +2467,7 @@ class ImagesGetUrlBaseRequest(ProtocolBuffer.ProtocolMessage):
     0: ProtocolBuffer.Encoder.NUMERIC,
     1: ProtocolBuffer.Encoder.STRING,
   }, 1, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""
@@ -2174,6 +2515,13 @@ class ImagesGetUrlBaseResponse(ProtocolBuffer.ProtocolMessage):
     n += self.lengthString(len(self.url_))
     return n + 1
 
+  def ByteSizePartial(self):
+    n = 0
+    if (self.has_url_):
+      n += 1
+      n += self.lengthString(len(self.url_))
+    return n
+
   def Clear(self):
     self.clear_url()
 
@@ -2181,12 +2529,19 @@ class ImagesGetUrlBaseResponse(ProtocolBuffer.ProtocolMessage):
     out.putVarInt32(10)
     out.putPrefixedString(self.url_)
 
+  def OutputPartial(self, out):
+    if (self.has_url_):
+      out.putVarInt32(10)
+      out.putPrefixedString(self.url_)
+
   def TryMerge(self, d):
     while d.avail() > 0:
       tt = d.getVarInt32()
       if tt == 10:
         self.set_url(d.getPrefixedString())
         continue
+
+
       if (tt == 0): raise ProtocolBuffer.ProtocolBufferDecodeError
       d.skipData(tt)
 
@@ -2211,6 +2566,7 @@ class ImagesGetUrlBaseResponse(ProtocolBuffer.ProtocolMessage):
     0: ProtocolBuffer.Encoder.NUMERIC,
     1: ProtocolBuffer.Encoder.STRING,
   }, 1, ProtocolBuffer.Encoder.MAX_TYPE)
+
 
   _STYLE = """"""
   _STYLE_CONTENT_TYPE = """"""

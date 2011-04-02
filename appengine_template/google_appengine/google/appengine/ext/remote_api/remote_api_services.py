@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """Service configuration for remote API.
 
 This module is shared by both the remote_api_stub and the handler.
@@ -118,5 +121,7 @@ SERVICE_PB_MAP = {
                         xmpp_service_pb.XmppMessageResponse),
         'SendInvite':  (xmpp_service_pb.XmppInviteRequest,
                         xmpp_service_pb.XmppInviteResponse),
+        'SendPresence':  (xmpp_service_pb.XmppSendPresenceRequest,
+                        xmpp_service_pb.XmppSendPresenceResponse),
     },
 }

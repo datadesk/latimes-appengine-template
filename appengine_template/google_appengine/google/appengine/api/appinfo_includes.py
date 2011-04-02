@@ -15,7 +15,18 @@
 # limitations under the License.
 #
 
+
+
+
 """Used to parse app.yaml files while following builtins/includes directives."""
+
+
+
+
+
+
+
+
 
 
 
@@ -46,6 +57,7 @@ def Parse(appinfo_file):
   appyaml = appinfo.LoadSingleAppInfo(appinfo_file)
   appyaml = _MergeBuiltinsIncludes(appinfo_path, appyaml)
 
+
   if not appyaml.handlers:
     raise appinfo_errors.MissingURLMapping(
         'No URLMap entries found in application configuration')
@@ -68,11 +80,15 @@ def _MergeBuiltinsIncludes(appinfo_path, appyaml):
     the modified appyaml object which incorporates referenced yaml files.
   """
 
+
+
   if not appyaml.builtins:
     appyaml.builtins = [appinfo.BuiltinHandler(default='on')]
+
   else:
     if not appinfo.BuiltinHandler.IsDefined(appyaml.builtins, 'default'):
       appyaml.builtins.append(appinfo.BuiltinHandler(default='on'))
+
 
   aggregate_appinclude = (
       _ResolveIncludes(appinfo_path,
@@ -111,20 +127,29 @@ def _ResolveIncludes(included_from, app_include, basepath, state=None):
 
   class RecurseState(object):
 
+
+
+
+
     def __init__(self):
       self.includes = {}
       self.excludes = {}
       self.aggregate_appinclude = appinfo.AppInclude()
 
+
   if not state:
     state = RecurseState()
 
+
   appinfo.AppInclude.MergeAppIncludes(state.aggregate_appinclude, app_include)
+
 
   includes_list = _ConvertBuiltinsToIncludes(included_from, app_include,
                                              state)
 
+
   includes_list.extend(app_include.includes or [])
+
 
   for i in includes_list:
     inc_path = _ResolvePath(included_from, i, basepath)
@@ -142,8 +167,10 @@ def _ResolveIncludes(included_from, app_include, basepath, state=None):
         inc_yaml = appinfo.LoadAppInclude(yaml_file)
         _ResolveIncludes(inc_path, inc_yaml, basepath, state=state)
       except appinfo_errors.EmptyConfigurationFile:
+
         if not os.path.basename(os.path.dirname(inc_path)) == 'default':
           logging.warning('Nothing to include in %s', inc_path)
+
 
   return state.aggregate_appinclude
 
@@ -171,8 +198,10 @@ def _ConvertBuiltinsToIncludes(included_from, app_include, state):
   if app_include.builtins:
     builtins_list = appinfo.BuiltinHandler.ListToTuples(app_include.builtins)
     for builtin_name, on_or_off in builtins_list:
+
       if not on_or_off:
         continue
+
 
       yaml_path = builtins.get_yaml_path(builtin_name)
 
@@ -211,10 +240,18 @@ def _ResolvePath(included_from, included_path, basepath):
     absolute path of the first file found for included_path or ''.
   """
 
+
+
+
+
+
+
   path = os.path.join(os.path.dirname(included_from), included_path)
   if not _IsFileOrDirWithFile(path):
+
     path = os.path.join(basepath, included_path)
     if not _IsFileOrDirWithFile(path):
+
       path = included_path
       if not _IsFileOrDirWithFile(path):
         return ''

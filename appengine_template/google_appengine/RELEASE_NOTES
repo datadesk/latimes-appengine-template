@@ -3,6 +3,118 @@ All rights reserved.
 
 App Engine Python SDK - Release Notes
 
+Version 1.4.3
+=================================
+- Added Files API that allows writing to and reading from files in blobstore.
+- You can now specify cron execution for a time interval between a start and end
+  time.
+- You can now configure the specific application version to which a task queue
+  or cron job will send requests.
+- The Admin Console Task Queues page now displays a more accurate estimate of
+  queue size for queues containing more than 2000 tasks.
+- The Prospective Search API (formerly named the Matcher API) is available for
+  use by all applications. This API is still experimental, so applications will
+  be limited to a maximum of 1000 subscriptions.
+- The Testbed API provides easy configuration of stub libraries for local
+  integration tests.
+- In the Images API, the quality parameter was added to the resize, rotate,
+  horizontal_flip, vertical_flip, crop and im_feeling_lucky methods.
+- Fixed an issue where static file serving in the dev_appserver didn't support
+  etags.
+    http://code.google.com/p/googleappengine/issues/detail?id=368
+- An error is now raised when the script mapping in the app.yaml file is missing
+  the .py file extension.
+    http://code.google.com/p/googleappengine/issues/detail?id=976
+- Fixed an issue where no link was displayed in the Admin Console blobstore
+  viewer for an unnamed blob.
+- Fixed an issue where the Admin Console data viewer couldn't edit entities
+  with ByteString properties.
+    http://code.google.com/p/googleappengine/issues/detail?id=2367
+- Fixed an issue where the Admin Console crashed when using a non-ascii
+  key_name.
+    http://code.google.com/p/googleappengine/issues/detail?id=2451
+- Fixed an issue filtering on __key__ while using the --use_sqlite option with
+  the dev_appserver.
+    http://code.google.com/p/googleappengine/issues/detail?id=3232
+- The Disable Application admin function has been button-ized.
+    http://code.google.com/p/googleappengine/issues/detail?id=4323
+- Fixed an SDK issue where debugging logging wouldn't correctly print URLFetch
+  payloads.
+    http://code.google.com/p/googleappengine/issues/detail?id=783
+- Fixed an SDK issue where an incompatible line ending was used on blob upload.
+    http://code.google.com/p/googleappengine/issues/detail?id=3328
+- Added more graceful handling of the missing mapreduce.yaml file when the user
+  has enabled the Datastore Admin but is not otherwise using the MapReduce
+  framework.
+    http://code.google.com/p/googleappengine/issues/detail?id=3903
+- Fixed an issue where the method webapp_add_wsgi_middleware was no longer
+  recognized.
+    http://code.google.com/p/googleappengine/issues/detail?id=4236
+
+Version 1.4.2
+================================
+- The XMPP API was updated to include presence and allow subscriptions.
+- The Task Queue now supports programmatic deleting of tasks.
+    http://code.google.com/p/googleappengine/issues/detail?id=2588
+- The maximum rate per queue at which tasks are processed has been increased to
+  100 tasks per second.
+- The maximum number of concurrent requests for a single queue can be specified
+  in the application's queue.yaml. This provides an additional easy-to-use form
+  of rate limiting. The current number of running tasks is also displayed in
+  the Admin Console.
+- Metadata queries in the Datastore now support cursors.
+- Admin Console logs viewer now displays time as YYYY-MM-DD HH:MM:SS.mmm.
+- The Mail API added KML and KMZ files as allowed attachments.
+- Added support for verifying the server SSL certificate when making a
+  URLFetch request to an HTTPS URL. This will become the default in a future
+  release.
+- Added a warning when an admin tries to upload a queue.yaml where the number
+  of new queues and the number of disabled queues exceeds 100.
+- Django 1.2.5 is available via use of the use_library() declaration. This
+  version of Django has also been added to the Python SDK.
+- Added builtin support for the deferred library.
+- If Python Precompilation fails, an error will be printed but the app will
+  still be uploaded.
+- Added a --disable_sdk_update_check command line flag to the dev_appserver.
+- Fixed an issue where the datastore copy functionality did not work if writes
+  were disabled on the source application.
+- Fixed an issue where mail from @appid.appspotmail.com did not work when
+  sending mail to app admins.
+- Fixed an issue where the dev_appserver URLFetch API limit was 16MB. It is now
+  32 MB to match production.
+- Fixed a zipimport issue on Windows which was not working due to path
+  separators.
+    http://code.google.com/p/googleappengine/issues/detail?id=2086
+- Fixed an issue where the SDK did not enforce the 100 task limit for the Task
+  Queue.
+    http://code.google.com/p/googleappengine/issues/detail?id=3296
+- Fixed an issue where Query.order() was broken for properties with the 'name'
+  attribute.
+    http://code.google.com/p/googleappengine/issues/detail?id=3693
+- Fixed an unhelpful error message in the Python namespace_manager.
+    http://code.google.com/p/googleappengine/issues/detail?id=3931
+
+
+Version 1.4.1
+================================
+- During application creation, developers can choose between two Datastore
+  configurations: High Replication or Master/Slave.
+    http://code.google.com/appengine/docs/python/datastore/hr/#Selecting_a_Datastore
+- You can set your application's datastore to read-only mode in the Admin
+  Console. Any writes attempted while the app is set to read-only will throw a
+  CapabilityDisabledError. This feature can be helpful for migrating or copying
+  data between two applications.
+    http://code.google.com/appengine/docs/adminconsole/applicationsettings.html#Disable_Datastore_Writes
+- The Datastore Admin tool has been updated to allow copying of one app's
+  datastore to another. The destination app must have the Remote API enabled.
+    http://code.google.com/appengine/docs/adminconsole/datastoreadmin.html
+- The deadline for offline URL Fetch API requests for Python and Java have been
+  increased to a maximum of 10 minutes. The default deadline for offline
+  URL Fetch requests remains the same.
+- Fixed an issue where an AttributeError was occasionally thrown on a datastore
+  query.
+    http://code.google.com/p/googleappengine/issues/detail?id=4196
+
 Version 1.4.0
 ================================
 - The Always On feature allows applications to pay and keep 3 instances of their

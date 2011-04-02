@@ -15,7 +15,14 @@
 # limitations under the License.
 #
 
+
+
+
 """Stub version of the Channel API, queues messages and writes them to a log."""
+
+
+
+
 
 
 
@@ -46,6 +53,7 @@ class ChannelServiceStub(apiproxy_stub.APIProxyStub):
     self._log = log
     self._channel_messages = {}
 
+
   def _Dynamic_CreateChannel(self, request, response):
     """Implementation of channel.get_channel.
 
@@ -68,6 +76,7 @@ class ChannelServiceStub(apiproxy_stub.APIProxyStub):
 
     response.set_client_id(client_id)
 
+
   def _Dynamic_SendChannelMessage(self, request, response):
     """Implementation of channel.send_message.
 
@@ -77,6 +86,7 @@ class ChannelServiceStub(apiproxy_stub.APIProxyStub):
       request: A SendMessageRequest.
       response: A VoidProto.
     """
+
     application_key = request.application_key()
     self._log('Sending a message (%s) to channel with key (%s)',
               request.message(), application_key)

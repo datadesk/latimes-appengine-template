@@ -14,6 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+
+
 """Runs a development application server for an application.
 
 %(script)s [options] <application root>
@@ -25,13 +28,20 @@ Options:
   --help, -h                 View this helpful message.
   --debug, -d                Use debug logging. (Default false)
   --clear_datastore, -c      Clear the Datastore on startup. (Default false)
+  --clear_prospective_search Clear the Prospective Search subscription index
+                             (Default false).
   --address=ADDRESS, -a ADDRESS
                              Address to which this server should bind. (Default
                              %(address)s).
   --port=PORT, -p PORT       Port for the server to run on. (Default %(port)s)
-  --blobstore_path=PATH      Path to use for storing Blobstore file stub data.
-  --datastore_path=PATH      Path to use for storing Datastore file stub data.
+  --blobstore_path=DIR       Path to directory to use for storing Blobstore
+                             file stub data.
+  --datastore_path=DS_FILE   Path to file to use for storing Datastore file
+                             stub data.
                              (Default %(datastore_path)s)
+  --skip_sdk_update_check    Skip checking for SDK updates. If false, fall back
+                             to opt_in setting specified in .appcfg_nag
+                             (Default false)
   --use_sqlite               Use the new, SQLite based datastore stub.
                              (Default false)
   --history_path=PATH        Path to use for storing Datastore history.
@@ -48,6 +58,17 @@ Options:
                              (Default '%(smtp_user)s').
   --smtp_password=PASSWORD   Password for SMTP server.
                              (Default '%(smtp_password)s')
+  --rdbms_sqlite_path=PATH   Path to the sqlite3 file for the RDBMS API.
+  --mysql_host=HOSTNAME      MySQL database host that the rdbms API will use.
+                             (Default '%(mysql_host)s')
+  --mysql_port=PORT          MySQL port to connect to.
+                             (Default %(mysql_port)s)
+  --mysql_user=USER          MySQL user to connect as.
+                             (Default %(mysql_user)s)
+  --mysql_password=PASSWORD  MySQL password to use.
+                             (Default '%(mysql_password)s')
+  --mysql_socket=PATH        MySQL Unix socket file path.
+                             (Default '%(mysql_socket)s')
   --enable_sendmail          Enable sendmail when SMTP not configured.
                              (Default false)
   --show_mail_body           Log the body of emails in mail stub.
@@ -72,6 +93,9 @@ Options:
 
 
 
+
+
+
 from google.appengine.tools import os_compat
 
 import getopt
@@ -81,6 +105,9 @@ import signal
 import sys
 import traceback
 import tempfile
+
+
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -94,7 +121,10 @@ from google.appengine.tools import dev_appserver
 
 
 
+
+
 DEFAULT_ADMIN_CONSOLE_SERVER = 'appengine.google.com'
+
 
 ARG_ADDRESS = 'address'
 ARG_ADMIN_CONSOLE_SERVER = 'admin_console_server'
@@ -103,8 +133,9 @@ ARG_AUTH_DOMAIN = 'auth_domain'
 ARG_CLEAR_DATASTORE = 'clear_datastore'
 ARG_BLOBSTORE_PATH = 'blobstore_path'
 ARG_DATASTORE_PATH = 'datastore_path'
-ARG_MATCHER_PATH = 'matcher_path'
-ARG_CLEAR_MATCHER = 'clear_matcher'
+ARG_PROSPECTIVE_SEARCH_PATH = 'prospective_search_path'
+ARG_CLEAR_PROSPECTIVE_SEARCH = 'clear_prospective_search'
+ARG_SKIP_SDK_UPDATE_CHECK = 'skip_sdk_update_check'
 ARG_USE_SQLITE = 'use_sqlite'
 ARG_DEBUG_IMPORTS = 'debug_imports'
 ARG_ENABLE_SENDMAIL = 'enable_sendmail'
@@ -119,14 +150,18 @@ ARG_SMTP_HOST = 'smtp_host'
 ARG_SMTP_PASSWORD = 'smtp_password'
 ARG_SMTP_PORT = 'smtp_port'
 ARG_SMTP_USER = 'smtp_user'
+ARG_RDBMS_SQLITE_PATH = 'rdbms_sqlite_path'
 ARG_MYSQL_HOST = 'mysql_host'
 ARG_MYSQL_PORT = 'mysql_port'
 ARG_MYSQL_USER = 'mysql_user'
 ARG_MYSQL_PASSWORD = 'mysql_password'
+ARG_MYSQL_SOCKET = 'mysql_socket'
 ARG_STATIC_CACHING = 'static_caching'
 ARG_TEMPLATE_DIR = 'template_dir'
 ARG_DISABLE_TASK_RUNNING = 'disable_task_running'
 ARG_TASK_RETRY_SECONDS = 'task_retry_seconds'
+
+
 ARG_TRUSTED = 'trusted'
 
 SDK_PATH = os.path.dirname(
@@ -144,25 +179,28 @@ DEFAULT_ARGS = {
                                    'dev_appserver.blobstore'),
   ARG_DATASTORE_PATH: os.path.join(tempfile.gettempdir(),
                                    'dev_appserver.datastore'),
-  ARG_MATCHER_PATH: os.path.join(tempfile.gettempdir(),
-                                 'dev_appserver.matcher'),
+  ARG_PROSPECTIVE_SEARCH_PATH: os.path.join(tempfile.gettempdir(),
+                                 'dev_appserver.prospective_search'),
+  ARG_SKIP_SDK_UPDATE_CHECK: False,
   ARG_USE_SQLITE: False,
   ARG_HISTORY_PATH: os.path.join(tempfile.gettempdir(),
                                  'dev_appserver.datastore.history'),
   ARG_LOGIN_URL: '/_ah/login',
   ARG_CLEAR_DATASTORE: False,
-  ARG_CLEAR_MATCHER: False,
+  ARG_CLEAR_PROSPECTIVE_SEARCH: False,
   ARG_REQUIRE_INDEXES: False,
   ARG_TEMPLATE_DIR: os.path.join(SDK_PATH, 'templates'),
   ARG_SMTP_HOST: '',
   ARG_SMTP_PORT: 25,
   ARG_SMTP_USER: '',
   ARG_SMTP_PASSWORD: '',
-
-
-
-
-
+  ARG_RDBMS_SQLITE_PATH: os.path.join(tempfile.gettempdir(),
+                                      'dev_appserver.rdbms'),
+  ARG_MYSQL_HOST: 'localhost',
+  ARG_MYSQL_PORT: 3306,
+  ARG_MYSQL_USER: '',
+  ARG_MYSQL_PASSWORD: '',
+  ARG_MYSQL_SOCKET: '',
   ARG_ENABLE_SENDMAIL: False,
   ARG_SHOW_MAIL_BODY: False,
   ARG_AUTH_DOMAIN: 'gmail.com',
@@ -216,8 +254,10 @@ def ParseArguments(argv):
         'allow_skipped_files',
         'auth_domain=',
         'clear_datastore',
+        'clear_prospective_search',
         'blobstore_path=',
         'datastore_path=',
+        'skip_sdk_update_check',
         'use_sqlite',
         'debug',
         'debug_imports',
@@ -226,10 +266,12 @@ def ParseArguments(argv):
         'show_mail_body',
         'help',
         'history_path=',
+        'rdbms_sqlite_path=',
         'mysql_host=',
         'mysql_port=',
         'mysql_user=',
         'mysql_password=',
+        'mysql_socket=',
         'port=',
         'require_indexes',
         'smtp_host=',
@@ -270,8 +312,11 @@ def ParseArguments(argv):
     if option == '--datastore_path':
       option_dict[ARG_DATASTORE_PATH] = os.path.abspath(value)
 
-    if option == '--matcher_path':
-      option_dict[ARG_MATCHER_PATH] = os.path.abspath(value)
+    if option == '--prospective_search_path':
+      option_dict[ARG_PROSPECTIVE_SEARCH_PATH] = os.path.abspath(value)
+
+    if option == '--skip_sdk_update_check':
+      option_dict[ARG_SKIP_SDK_UPDATE_CHECK] = True
 
     if option == '--use_sqlite':
       option_dict[ARG_USE_SQLITE] = True
@@ -282,11 +327,14 @@ def ParseArguments(argv):
     if option in ('-c', '--clear_datastore'):
       option_dict[ARG_CLEAR_DATASTORE] = True
 
-    if option == '--clear_matcher':
-      option_dict[ARG_CLEAR_MATCHER] = True
+    if option == '--clear_prospective_search':
+      option_dict[ARG_CLEAR_PROSPECTIVE_SEARCH] = True
 
     if option == '--require_indexes':
       option_dict[ARG_REQUIRE_INDEXES] = True
+
+    if option == '--rdbms_sqlite_path':
+      option_dict[ARG_RDBMS_SQLITE_PATH] = value
 
     if option == '--mysql_host':
       option_dict[ARG_MYSQL_HOST] = value
@@ -299,6 +347,9 @@ def ParseArguments(argv):
 
     if option == '--mysql_password':
       option_dict[ARG_MYSQL_PASSWORD] = value
+
+    if option == '--mysql_socket':
+      option_dict[ARG_MYSQL_SOCKET] = value
 
     if option == '--smtp_host':
       option_dict[ARG_SMTP_HOST] = value
@@ -396,6 +447,7 @@ def MakeRpcServer(option_dict):
       appcfg.GetUserAgent(),
       appcfg.GetSourceName(),
       host_override=option_dict[ARG_ADMIN_CONSOLE_HOST])
+
   server.authenticated = True
   return server
 
@@ -427,17 +479,18 @@ def main(argv):
 
   log_level = option_dict[ARG_LOG_LEVEL]
   port = option_dict[ARG_PORT]
-  blobstore_path = option_dict[ARG_BLOBSTORE_PATH]
-  datastore_path = option_dict[ARG_DATASTORE_PATH]
-  matcher_path = option_dict[ARG_MATCHER_PATH]
   login_url = option_dict[ARG_LOGIN_URL]
   template_dir = option_dict[ARG_TEMPLATE_DIR]
   serve_address = option_dict[ARG_ADDRESS]
   require_indexes = option_dict[ARG_REQUIRE_INDEXES]
   allow_skipped_files = option_dict[ARG_ALLOW_SKIPPED_FILES]
   static_caching = option_dict[ARG_STATIC_CACHING]
+  skip_sdk_update_check = option_dict[ARG_SKIP_SDK_UPDATE_CHECK]
+
+
 
   option_dict['root_path'] = os.path.realpath(root_path)
+
 
   logging.getLogger().setLevel(log_level)
 
@@ -453,11 +506,15 @@ def main(argv):
     return 1
 
   if option_dict[ARG_ADMIN_CONSOLE_SERVER] != '':
+
     server = MakeRpcServer(option_dict)
-    update_check = appcfg.UpdateCheck(server, config)
-    update_check.CheckSupportedVersion()
-    if update_check.AllowedToCheckForUpdates():
-      update_check.CheckForUpdates()
+    if skip_sdk_update_check:
+      logging.info('Skipping update check.')
+    else:
+      update_check = appcfg.UpdateCheck(server, config)
+      update_check.CheckSupportedVersion()
+      if update_check.AllowedToCheckForUpdates():
+        update_check.CheckForUpdates()
 
   try:
     dev_appserver.SetupStubs(config.application, **option_dict)
@@ -481,6 +538,7 @@ def main(argv):
 
   signal.signal(signal.SIGTERM, SigTermHandler)
 
+
   logging.info('Running application %s on port %d: http://%s:%d',
                config.application, port, serve_address, port)
   try:
@@ -497,6 +555,7 @@ def main(argv):
     http_server.server_close()
 
   return 0
+
 
 
 if __name__ == '__main__':

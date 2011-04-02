@@ -14,6 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+
+
 """Pure-Python application server for testing applications locally.
 
 Given a port and the paths to a valid application directory (with an 'app.yaml'
@@ -31,6 +34,7 @@ Example:
 """
 
 
+
 from google.appengine.tools import os_compat
 
 import __builtin__
@@ -44,10 +48,14 @@ import cgitb
 try:
   import distutils.util
 except ImportError:
+
+
+
   pass
 
 import dummy_thread
 import email.Utils
+import fancy_urllib
 import errno
 import heapq
 import httplib
@@ -66,6 +74,11 @@ import shutil
 import tempfile
 import yaml
 
+
+
+
+
+
 import re
 import sre_compile
 import sre_constants
@@ -78,10 +91,9 @@ import traceback
 import types
 import urlparse
 import urllib
+import zlib
 
 import google
-google._DEV_APPSERVER = True
-
 from google.pyglib import gexcept
 
 from google.appengine.api import apiproxy_stub_map
@@ -98,11 +110,14 @@ from google.appengine.api import user_service_stub
 from google.appengine.api import yaml_errors
 from google.appengine.api.blobstore import blobstore_stub
 from google.appengine.api.blobstore import file_blob_storage
+
 from google.appengine.api.capabilities import capability_stub
 from google.appengine.api.channel import channel_service_stub
+from google.appengine.api.files import file_service_stub
 from google.appengine.api.taskqueue import taskqueue_stub
-from google.appengine.api.matcher import matcher_stub
+from google.appengine.api.prospective_search import prospective_search_stub
 from google.appengine.api.memcache import memcache_stub
+
 from google.appengine.api.xmpp import xmpp_service_stub
 from google.appengine.datastore import datastore_sqlite_stub
 
@@ -117,17 +132,26 @@ from google.appengine.tools import dev_appserver_oauth
 from google.appengine.tools import dev_appserver_upload
 
 
+
+
 PYTHON_LIB_VAR = '$PYTHON_LIB'
 DEVEL_CONSOLE_PATH = PYTHON_LIB_VAR + '/google/appengine/ext/admin'
 
+
 FILE_MISSING_EXCEPTIONS = frozenset([errno.ENOENT, errno.ENOTDIR])
 
+
+
 MAX_URL_LENGTH = 2047
+
+
 
 HEADER_TEMPLATE = 'logging_console_header.html'
 SCRIPT_TEMPLATE = 'logging_console.js'
 MIDDLE_TEMPLATE = 'logging_console_middle.html'
 FOOTER_TEMPLATE = 'logging_console_footer.html'
+
+
 
 DEFAULT_ENV = {
     'GATEWAY_INTERFACE': 'CGI/1.1',
@@ -136,26 +160,44 @@ DEFAULT_ENV = {
     'TZ': 'UTC',
 }
 
+
 DEFAULT_SELECT_DELAY = 30.0
+
+
 
 for ext, mime_type in mail.EXTENSION_MIME_MAP.iteritems():
   mimetypes.add_type(mime_type, '.' + ext)
 
+
+
 MAX_RUNTIME_RESPONSE_SIZE = 10 << 20
+
+
 
 MAX_REQUEST_SIZE = 10 * 1024 * 1024
 
+
 COPY_BLOCK_SIZE = 1 << 20
+
+
 
 API_VERSION = '1'
 
+
+
+
 VERSION_FILE = '../VERSION'
+
 
 SITE_PACKAGES = os.path.normcase(os.path.join(os.path.dirname(os.__file__),
                                               'site-packages'))
 
+
+
+
 DEVEL_PAYLOAD_HEADER = 'HTTP_X_APPENGINE_DEVELOPMENT_PAYLOAD'
 DEVEL_PAYLOAD_RAW_HEADER = 'X-AppEngine-Development-Payload'
+
 
 
 
@@ -173,6 +215,7 @@ class AppConfigNotFoundError(Error):
 
 class TemplatesNotLoadedError(Error):
   """Templates for the debugging console were not loaded."""
+
 
 
 
@@ -233,6 +276,7 @@ def CopyStreamPart(source, destination, content_size):
     bytes_copied += bytes_read
     bytes_left -= bytes_read
   return bytes_copied
+
 
 
 class AppServerRequest(object):
@@ -365,6 +409,9 @@ class URLMatcher(object):
 
   def __init__(self):
     """Initializer."""
+
+
+
     self._url_patterns = []
 
   def AddURL(self, regex, dispatcher, path, requires_login, admin_only,
@@ -434,6 +481,7 @@ class URLMatcher(object):
       matched by the URL pattern.  If no match was found, dispatcher will
       be None.
     """
+
     adjusted_url, unused_query_string = split_url(relative_url)
 
     for url_tuple in self._url_patterns:
@@ -456,6 +504,7 @@ class URLMatcher(object):
       A set of URLDispatcher objects.
     """
     return set([url_tuple[1] for url_tuple in self._url_patterns])
+
 
 
 
@@ -531,14 +580,17 @@ class MatcherDispatcher(URLDispatcher):
                                               base_env_dict=base_env_dict)
 
         if forward_request:
+
           logging.info('Internal redirection to %s',
                        forward_request.relative_url)
           new_outfile = cStringIO.StringIO()
           self.Dispatch(forward_request,
                         new_outfile,
                         dict(base_env_dict))
+
           new_outfile.seek(0)
           dispatcher.EndRedirect(new_outfile, outfile)
+
 
       return
 
@@ -550,8 +602,10 @@ class MatcherDispatcher(URLDispatcher):
 
 
 
+
 class ApplicationLoggingHandler(logging.Handler):
   """Python Logging handler that displays the debugging console to users."""
+
 
   _COOKIE_NAME = '_ah_severity'
 
@@ -656,6 +710,8 @@ class ApplicationLoggingHandler(logging.Handler):
     outfile.write('</span>\n')
 
 
+
+
 _IGNORE_REQUEST_HEADERS = frozenset(['content-type', 'content-length',
                                      'accept-encoding', 'transfer-encoding'])
 
@@ -697,17 +753,22 @@ def SetupEnvironment(cgi_path,
   if admin:
     env['USER_IS_ADMIN'] = '1'
   if env['AUTH_DOMAIN'] == '*':
+
     auth_domain = 'gmail.com'
     parts = email_addr.split('@')
     if len(parts) == 2 and parts[1]:
       auth_domain = parts[1]
     env['AUTH_DOMAIN'] = auth_domain
 
+
   for key in headers:
     if key in _IGNORE_REQUEST_HEADERS:
       continue
     adjusted_name = key.replace('-', '_').upper()
     env['HTTP_' + adjusted_name] = ', '.join(headers.getheaders(key))
+
+
+
 
   if DEVEL_PAYLOAD_HEADER in env:
     del env[DEVEL_PAYLOAD_HEADER]
@@ -821,6 +882,36 @@ def FakeUTime(path, times):
   raise OSError(errno.EPERM, "Operation not permitted", path)
 
 
+def FakeGetHostByAddr(addr):
+  """Fake version of socket.gethostbyaddr."""
+  raise NotImplementedError()
+
+
+def FakeGetProtoByName(protocolname):
+  """Fake version of socket.getprotobyname."""
+  raise NotImplementedError()
+
+
+def FakeGetServByPort(portnumber, protocolname=None):
+  """Fake version of socket.getservbyport."""
+  raise NotImplementedError()
+
+
+def FakeGetNameInfo(sockaddr, flags):
+  """Fake version of socket.getnameinfo."""
+  raise NotImplementedError()
+
+
+def FakeSocketRecvInto(buf, nbytes=0, flags=0):
+  """Fake version of socket.socket.recvinto."""
+  raise NotImplementedError()
+
+
+def FakeSocketRecvFromInto(buffer, nbytes=0, flags=0):
+  """Fake version of socket.socket.recvfrom_into."""
+  raise NotImplementedError()
+
+
 def FakeGetPlatform():
   """Fake distutils.util.get_platform on OS/X.  Pass-through otherwise."""
   if sys.platform == 'darwin':
@@ -850,6 +941,9 @@ def IsPathInSubdirectories(filename,
     if os.path.commonprefix([file_dir, fixed_parent]) == fixed_parent:
       return True
   return False
+
+
+
 
 SHARED_MODULE_PREFIXES = set([
     'google',
@@ -917,6 +1011,12 @@ def SetupSharedModules(module_dict):
   """
   output_dict = {}
   for module_name, module in module_dict.iteritems():
+
+
+
+
+
+
     if module is None:
       continue
 
@@ -955,9 +1055,15 @@ class FakeFile(file):
 
   ALLOWED_MODES = frozenset(['r', 'rb', 'U', 'rU'])
 
+
   ALLOWED_FILES = set(os.path.normcase(filename)
                       for filename in mimetypes.knownfiles
                       if os.path.isfile(filename))
+
+
+
+
+
 
   ALLOWED_DIRS = set([
       os.path.normcase(os.path.realpath(os.path.dirname(os.__file__))),
@@ -966,6 +1072,9 @@ class FakeFile(file):
       os.path.normcase(os.path.dirname(os.path.abspath(os.__file__))),
   ])
 
+
+
+
   NOT_ALLOWED_DIRS = set([
 
 
@@ -973,6 +1082,13 @@ class FakeFile(file):
 
       SITE_PACKAGES,
   ])
+
+
+
+
+
+
+
 
   ALLOWED_SITE_PACKAGE_DIRS = set(
       os.path.normcase(os.path.abspath(os.path.join(SITE_PACKAGES, path)))
@@ -1024,14 +1140,19 @@ class FakeFile(file):
           GeneratePythonPaths('Crypto', 'Util', 'randpool'),
           ]))
 
+
+
   _original_file = file
+
 
   _root_path = None
   _application_paths = None
   _skip_files = None
   _static_file_config_matcher = None
 
+
   _allow_skipped_files = True
+
 
   _availability_cache = {}
 
@@ -1048,11 +1169,14 @@ class FakeFile(file):
                          access, this must include the App Engine runtime but
                          not the Python library directories.
     """
+
+
     FakeFile._application_paths = (set(os.path.realpath(path)
                                        for path in application_paths) |
                                    set(os.path.abspath(path)
                                        for path in application_paths))
     FakeFile._application_paths.add(root_path)
+
 
     FakeFile._root_path = os.path.join(root_path, '')
 
@@ -1139,7 +1263,16 @@ class FakeFile(file):
     Returns:
       True if the file is accessible, False otherwise.
     """
+
+
+
     logical_filename = normcase(os.path.abspath(filename))
+
+
+
+
+
+
 
     result = FakeFile._availability_cache.get(logical_filename)
     if result is None:
@@ -1161,12 +1294,18 @@ class FakeFile(file):
     Returns:
       True if the file is accessible, False otherwise.
     """
+
+
+
+
     logical_dirfakefile = logical_filename
     if os.path.isdir(logical_filename):
       logical_dirfakefile = os.path.join(logical_filename, 'foo')
 
+
     if IsPathInSubdirectories(logical_dirfakefile, [FakeFile._root_path],
                               normcase=normcase):
+
       relative_filename = logical_dirfakefile[len(FakeFile._root_path):]
 
       if not FakeFile._allow_skipped_files:
@@ -1208,12 +1347,17 @@ class FakeFile(file):
   def __init__(self, filename, mode='r', bufsize=-1, **kwargs):
     """Initializer. See file built-in documentation."""
     if mode not in FakeFile.ALLOWED_MODES:
+
+
+
+
       raise IOError('invalid mode: %s' % mode)
 
     if not FakeFile.IsFileAccessible(filename):
       raise IOError(errno.EACCES, 'file not accessible', filename)
 
     super(FakeFile, self).__init__(filename, mode, bufsize, **kwargs)
+
 
 
 from google.appengine.dist import _library
@@ -1255,6 +1399,7 @@ def GetSubmoduleName(fullname):
     'stuff'), the returned value will just be that module name ('stuff').
   """
   return fullname.rsplit('.', 1)[-1]
+
 
 
 
@@ -1319,6 +1464,8 @@ class HardenedModulesHook(object):
     http://www.python.org/dev/peps/pep-0302/
   """
 
+
+
   ENABLE_LOGGING = False
 
   def log(self, message, *args):
@@ -1332,6 +1479,11 @@ class HardenedModulesHook(object):
     if HardenedModulesHook.ENABLE_LOGGING:
       indent = self._indent_level * '  '
       print >>sys.stderr, indent + (message % args)
+
+
+
+
+
 
   _WHITE_LIST_C_MODULES = [
       'py_streamhtmlparser',
@@ -1426,6 +1578,10 @@ class HardenedModulesHook(object):
       'key_size',
       'new',
   ]
+
+
+
+
   _WHITE_LIST_PARTIAL_MODULES = {
       'Crypto.Cipher.AES': __CRYPTO_CIPHER_ALLOWED_MODULES,
       'Crypto.Cipher.ARC2': __CRYPTO_CIPHER_ALLOWED_MODULES,
@@ -1526,7 +1682,136 @@ class HardenedModulesHook(object):
           'W_OK',
           'X_OK',
       ],
+
+      'socket': [
+
+          '_GLOBAL_DEFAULT_TIMEOUT',
+          'AF_UNSPEC',
+          'AF_UNIX',
+          'AF_INET',
+          'AF_INET6',
+          'SOCK_STREAM',
+          'SOCK_DGRAM',
+          'SOMAXCONN',
+          'MSG_PEEK',
+          'MSG_WAITALL',
+          'IPPROTO_IP',
+          'IPPROTO_ICMP',
+          'IPPROTO_TCP',
+          'IPPROTO_UDP',
+          'IPPORT_RESERVED',
+          'IPPORT_USERRESERVED',
+          'INADDR_ANY',
+          'INADDR_BROADCAST',
+          'INADDR_LOOPBACK',
+          'INADDR_NONE',
+          'AI_PASSIVE',
+          'AI_CANONNAME',
+          'AI_NUMERICHOST',
+          'AI_NUMERICSERV',
+          'AI_V4MAPPED',
+          'AI_ALL',
+          'AI_ADDRCONFIG',
+          'EAI_ADDRFAMILY',
+          'EAI_AGAIN',
+          'EAI_BADFLAGS',
+          'EAI_FAIL',
+          'EAI_FAMILY',
+          'EAI_MEMORY',
+          'EAI_NODATA',
+          'EAI_NONAME',
+          'EAI_SERVICE',
+          'EAI_SOCKTYPE',
+          'EAI_SYSTEM',
+          'EAI_BADHINTS',
+          'EAI_PROTOCOL',
+          'EAI_OVERFLOW',
+          'EAI_MAX',
+          'SHUT_RD',
+          'SHUT_WR',
+          'SHUT_RDWR',
+          'SOL_SOCKET',
+          'SOL_IP',
+          'SOL_TCP',
+          'SOL_UDP',
+          'SO_DEBUG',
+          'SO_REUSEADDR',
+          'SO_TYPE',
+          'SO_ERROR',
+          'SO_DONTROUTE',
+          'SO_BROADCAST',
+          'SO_SNDBUF',
+          'SO_RCVBUF',
+          'SO_KEEPALIVE',
+          'IP_TOS',
+          'IP_TTL',
+          'IP_HDRINCL',
+          'IP_OPTIONS',
+          'TCP_NODELAY',
+          'TCP_MAXSEG',
+          'TCP_CORK',
+          'TCP_KEEPIDLE',
+          'TCP_KEEPINTVL',
+          'TCP_KEEPCNT',
+          'TCP_SYNCNT',
+          'TCP_LINGER2',
+          'TCP_DEFER_ACCEPT',
+          'TCP_WINDOW_CLAMP',
+          'TCP_INFO',
+          'TCP_QUICKACK',
+
+
+          'error',
+          'gaierror',
+          'herror',
+          'timeout',
+
+
+          'getfqdn',
+          'gethostbyname',
+          'gethostbyname_ex',
+          'gethostbyaddr',
+          'gethostname',
+          'getprotobyname',
+          'getservbyname',
+          'getservbyport',
+          'ntohs',
+          'ntohl',
+          'htons',
+          'htonl',
+          'getaddrinfo',
+          'getnameinfo',
+          'inet_aton',
+          'inet_ntoa',
+          'getdefaulttimeout',
+          'setdefaulttimeout',
+          'inet_pton',
+          'inet_ntop',
+          'create_connection',
+
+
+          'socket',
+          '_closedsocket',
+          '_fileobject',
+          '_socketobject',
+      ],
+
+      'select': [
+
+          'error',
+
+
+          'select',
+      ],
   }
+
+
+
+
+
+
+
+
 
   _MODULE_OVERRIDES = {
       'locale': {
@@ -1549,10 +1834,24 @@ class HardenedModulesHook(object):
           'utime': FakeUTime,
       },
 
+      'socket': {
+          'gethostbyaddr': FakeGetHostByAddr,
+          'getprotobyname': FakeGetProtoByName,
+          'getservbyport': FakeGetServByPort,
+          'getnameinfo': FakeGetNameInfo,
+
+
+
+
+
+
+      },
+
       'distutils.util': {
           'get_platform': FakeGetPlatform,
       },
   }
+
 
   _ENABLED_FILE_TYPES = (
       imp.PKG_DIRECTORY,
@@ -1566,7 +1865,9 @@ class HardenedModulesHook(object):
                imp_module=imp,
                os_module=os,
                dummy_thread_module=dummy_thread,
-               pickle_module=pickle):
+               pickle_module=pickle,
+               socket_module=socket,
+               select_module=select):
     """Initializer.
 
     Args:
@@ -1582,11 +1883,17 @@ class HardenedModulesHook(object):
     self._os = os_module
     self._dummy_thread = dummy_thread_module
     self._pickle = pickle
+    self._socket = socket_module
+    self._select = select_module
     self._indent_level = 0
 
   @Trace
   def find_module(self, fullname, path=None):
     """See PEP 302."""
+
+
+
+
     if fullname in ('cPickle', 'thread'):
       return self
 
@@ -1597,21 +1904,48 @@ class HardenedModulesHook(object):
         current_module_fullname = '.'.join(all_modules[:index + 1])
         if (current_module_fullname == fullname and not
             self.StubModuleExists(fullname)):
+
+
+
+
+
+
           self.FindModuleRestricted(current_module,
                                     current_module_fullname,
                                     search_path)
         else:
+
+
+
           if current_module_fullname in self._module_dict:
             module = self._module_dict[current_module_fullname]
           else:
+
             module = self.FindAndLoadModule(current_module,
                                             current_module_fullname,
                                             search_path)
 
+
+
+
+
+
+
           if hasattr(module, '__path__'):
             search_path = module.__path__
     except CouldNotFindModuleError:
+
+
+
+
+
+
+
+
+
       return None
+
+
 
     return self
 
@@ -1627,6 +1961,9 @@ class HardenedModulesHook(object):
     """Import the stub module replacement for the specified module."""
     if name in sys.builtin_module_names:
       name = 'py_%s' % name
+
+
+
     module = __import__(dist.__name__, {}, {}, [name])
     return getattr(module, name)
 
@@ -1638,11 +1975,13 @@ class HardenedModulesHook(object):
       module: The module to prune. This should be a new module whose attributes
         reference back to the real module's __dict__ members.
     """
+
     if module.__name__ in self._WHITE_LIST_PARTIAL_MODULES:
       allowed_symbols = self._WHITE_LIST_PARTIAL_MODULES[module.__name__]
       for symbol in set(module.__dict__) - set(allowed_symbols):
         if not (symbol.startswith('__') and symbol.endswith('__')):
           del module.__dict__[symbol]
+
 
     if module.__name__ in self._MODULE_OVERRIDES:
       module.__dict__.update(self._MODULE_OVERRIDES[module.__name__])
@@ -1680,18 +2019,45 @@ class HardenedModulesHook(object):
       be found for import.
     """
     if search_path is None:
+
+
       search_path = [None] + sys.path
+
+
+
+
+
     for path_entry in search_path:
       result = self.FindPathHook(submodule, submodule_fullname, path_entry)
       if result is not None:
         source_file, pathname, description = result
         if description == (None, None, None):
+
           return result
         else:
+
           break
     else:
+
       self.log('Could not find module "%s"', submodule_fullname)
       raise CouldNotFindModuleError()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     suffix, mode, file_type = description
 
@@ -1724,40 +2090,57 @@ class HardenedModulesHook(object):
       meaning of the latter.
     """
     if path_entry is None:
+
       if submodule_fullname in sys.builtin_module_names:
         try:
           result = self._imp.find_module(submodule)
         except ImportError:
           pass
         else:
+
           source_file, pathname, description = result
           suffix, mode, file_type = description
           if file_type == self._imp.C_BUILTIN:
             return result
+
       return None
+
+
+
 
 
     if path_entry in sys.path_importer_cache:
       importer = sys.path_importer_cache[path_entry]
     else:
+
       importer = None
       for hook in sys.path_hooks:
         try:
           importer = hook(path_entry)
+
           break
         except ImportError:
+
           pass
+
       sys.path_importer_cache[path_entry] = importer
 
     if importer is None:
+
       try:
         return self._imp.find_module(submodule, [path_entry])
       except ImportError:
         pass
     else:
+
       loader = importer.find_module(submodule)
       if loader is not None:
+
+
+
+
         return (loader, None, (None, None, None))
+
 
     return None
 
@@ -1788,15 +2171,30 @@ class HardenedModulesHook(object):
       whatever reason.
     """
     if description == (None, None, None):
+
+
       return source_file.load_module(submodule_fullname)
 
     try:
       try:
+
+
+
+
+
+
+
+
+
+
+
         return self._imp.load_module(submodule_fullname,
                                      source_file,
                                      pathname,
                                      description)
       except:
+
+
         if submodule_fullname in self._module_dict:
           del self._module_dict[submodule_fullname]
         raise
@@ -1837,6 +2235,10 @@ class HardenedModulesHook(object):
       module.__name__ = 'cPickle'
     elif submodule_fullname == 'os':
       module.__dict__.update(self._os.__dict__)
+    elif submodule_fullname == 'socket':
+      module.__dict__.update(self._socket.__dict__)
+    elif submodule_fullname == 'select':
+      module.__dict__.update(self._select.__dict__)
     elif self.StubModuleExists(submodule_fullname):
       module = self.ImportStubModule(submodule_fullname)
     else:
@@ -1846,14 +2248,26 @@ class HardenedModulesHook(object):
                                          pathname,
                                          description)
 
+
+
     module.__loader__ = self
     self.FixModule(module)
     if submodule_fullname not in self._module_dict:
       self._module_dict[submodule_fullname] = module
 
     if submodule_fullname == 'os':
+
+
+
+
+
+
+
+
       os_path_name = module.path.__name__
       os_path = self.FindAndLoadModule(os_path_name, os_path_name, search_path)
+
+
       self._module_dict['os.path'] = os_path
       module.__dict__['path'] = os_path
 
@@ -1876,6 +2290,7 @@ class HardenedModulesHook(object):
     all_modules = fullname.split('.')
     parent_module_fullname = '.'.join(all_modules[:-1])
     if parent_module_fullname:
+
       if self.find_module(fullname) is None:
         raise ImportError('Could not find module %s' % fullname)
 
@@ -1978,11 +2393,15 @@ class HardenedModulesHook(object):
     finally:
       source_file.close()
 
+
+
+
     source_code = source_code.replace('\r\n', '\n')
     if not source_code.endswith('\n'):
       source_code += '\n'
 
     return compile(source_code, full_path, 'exec')
+
 
 
 
@@ -2008,6 +2427,30 @@ def ModuleHasValidMainFunction(module):
   return False
 
 
+def CheckScriptExists(cgi_path, handler_path):
+  """Check that the given handler_path is a file that exists on disk.
+
+  Args:
+    cgi_path: Absolute path to the CGI script file on disk.
+    handler_path: CGI path stored in the application configuration (as a path
+      like 'foo/bar/baz.py'). May contain $PYTHON_LIB references.
+
+  Raises:
+    CouldNotFindModuleError if the given handler_path is a file and doesn't have
+    the expected extension.
+  """
+  if handler_path.startswith(PYTHON_LIB_VAR + '/'):
+
+    return
+
+  if (not os.path.isdir(cgi_path) and
+      not os.path.isfile(cgi_path) and
+      os.path.isfile(cgi_path + '.py')):
+    raise CouldNotFindModuleError(
+        'Perhaps you meant to have the line "script: %s.py" in your app.yaml' %
+        handler_path)
+
+
 def GetScriptModuleName(handler_path):
   """Determines the fully-qualified Python module name of a script on disk.
 
@@ -2022,12 +2465,15 @@ def GetScriptModuleName(handler_path):
     handler_path = handler_path[len(PYTHON_LIB_VAR):]
   handler_path = os.path.normpath(handler_path)
 
+
   extension_index = handler_path.rfind('.py')
   if extension_index != -1:
     handler_path = handler_path[:extension_index]
   module_fullname = handler_path.replace(os.sep, '.')
   module_fullname = module_fullname.strip('.')
   module_fullname = re.sub('\.+', '.', module_fullname)
+
+
 
   if module_fullname.endswith('.__init__'):
     module_fullname = module_fullname[:-len('.__init__')]
@@ -2056,10 +2502,17 @@ def FindMissingInitFiles(cgi_path, module_fullname, isfile=os.path.isfile):
     module_base = cgi_path
 
   depth_count = module_fullname.count('.')
+
+
+
+
+
   if cgi_path.endswith('__init__.py') or not cgi_path.endswith('.py'):
     depth_count += 1
 
   for index in xrange(depth_count):
+
+
     current_init_file = os.path.abspath(
         os.path.join(module_base, '__init__.py'))
 
@@ -2097,16 +2550,31 @@ def LoadTargetModule(handler_path,
       module_code: Code object (returned by compile built-in) corresponding
         to the cgi_path to run. If the script_module was previously loaded
         and has a main() function that can be reused, this will be None.
+
+  Raises:
+    CouldNotFindModuleError if the given handler_path is a file and doesn't have
+    the expected extension.
   """
+  CheckScriptExists(cgi_path, handler_path)
   module_fullname = GetScriptModuleName(handler_path)
   script_module = module_dict.get(module_fullname)
   module_code = None
   if script_module is not None and ModuleHasValidMainFunction(script_module):
+
+
+
     logging.debug('Reusing main() function of module "%s"', module_fullname)
   else:
+
+
+
+
+
+
     if script_module is None:
       script_module = imp.new_module(module_fullname)
       script_module.__loader__ = import_hook
+
 
     try:
       module_code = import_hook.get_code(module_fullname)
@@ -2121,6 +2589,12 @@ def LoadTargetModule(handler_path,
       if exc_value:
         import_error_message += ': ' + str(exc_value)
 
+
+
+
+
+
+
       logging.exception('Encountered error loading module "%s": %s',
                         module_fullname, import_error_message)
       missing_inits = FindMissingInitFiles(cgi_path, module_fullname)
@@ -2131,9 +2605,14 @@ def LoadTargetModule(handler_path,
         logging.error('Parent package initialization files are present, '
                       'but must be broken')
 
+
       independent_load_successful = True
 
       if not os.path.isfile(cgi_path):
+
+
+
+
         independent_load_successful = False
       else:
         try:
@@ -2145,10 +2624,17 @@ def LoadTargetModule(handler_path,
             source_file.close()
 
         except OSError:
+
+
+
           independent_load_successful = False
+
 
       if not independent_load_successful:
         raise exc_type, exc_value, exc_tb
+
+
+
 
     module_dict[module_fullname] = script_module
 
@@ -2217,11 +2703,18 @@ def ExecuteOrImportScript(handler_path, cgi_path, import_hook):
     else:
       script_module.main()
 
+
+
+
+
     sys.stdout.flush()
     sys.stdout.seek(0)
     try:
       headers = mimetools.Message(sys.stdout)
     finally:
+
+
+
       sys.stdout.seek(0, 2)
     status_header = headers.get('status')
     error_response = False
@@ -2231,6 +2724,7 @@ def ExecuteOrImportScript(handler_path, cgi_path, import_hook):
         error_response = status_code >= 400
       except ValueError:
         error_response = True
+
 
     if not error_response:
       try:
@@ -2278,6 +2772,8 @@ def ExecuteCGI(root_path,
       This dictionary must be separate from the sys.modules dictionary.
     exec_script: Used for dependency injection.
   """
+
+
   old_module_dict = sys.modules.copy()
   old_builtin = __builtin__.__dict__.copy()
   old_argv = sys.argv
@@ -2293,10 +2789,13 @@ def ExecuteCGI(root_path,
     before_path = sys.path[:]
     sys.modules.update(module_dict)
     sys.argv = [cgi_path]
+
     sys.stdin = cStringIO.StringIO(infile.getvalue())
     sys.stdout = outfile
     os.environ.clear()
     os.environ.update(env)
+
+
     cgi_dir = os.path.normpath(os.path.dirname(cgi_path))
     root_path = os.path.normpath(os.path.abspath(root_path))
     if cgi_dir.startswith(root_path + os.sep):
@@ -2304,14 +2803,17 @@ def ExecuteCGI(root_path,
     else:
       os.chdir(root_path)
 
+
     hook = HardenedModulesHook(sys.modules)
     sys.meta_path = [hook]
     if hasattr(sys, 'path_importer_cache'):
       sys.path_importer_cache.clear()
 
+
     __builtin__.file = FakeFile
     __builtin__.open = FakeFile
     types.FileType = FakeFile
+
 
     __builtin__.buffer = NotImplementedFakeClass
 
@@ -2330,6 +2832,8 @@ def ExecuteCGI(root_path,
 
     _ClearTemplateCache(sys.modules)
 
+
+
     module_dict.update(sys.modules)
     ClearAllButEncodingsModules(sys.modules)
     sys.modules.update(old_module_dict)
@@ -2339,11 +2843,14 @@ def ExecuteCGI(root_path,
     sys.stdin = old_stdin
     sys.stdout = old_stdout
 
+
+
     sys.path[:] = before_path
 
     os.environ.clear()
     os.environ.update(old_env)
     os.chdir(old_cwd)
+
 
     types.FileType = old_file_type
 
@@ -2384,6 +2891,7 @@ class CGIDispatcher(URLDispatcher):
     request_size = int(request.headers.get('content-length', 0))
     if not CheckRequestSize(request_size, outfile):
       return
+
 
     memory_file = cStringIO.StringIO()
     CopyStreamPart(request.infile, memory_file, request_size)
@@ -2463,6 +2971,7 @@ class LocalCGIDispatcher(CGIDispatcher):
 
 
 
+
 class PathAdjuster(object):
   """Adjusts application file paths to paths relative to the application or
   external library directories."""
@@ -2500,6 +3009,7 @@ class PathAdjuster(object):
 
 
 
+
 class StaticFileConfigMatcher(object):
   """Keeps track of file/directory specific application configuration.
 
@@ -2533,6 +3043,7 @@ class StaticFileConfigMatcher(object):
     else:
       self._default_expiration = None
 
+
     self._patterns = []
 
     if url_map_list:
@@ -2556,8 +3067,10 @@ class StaticFileConfigMatcher(object):
                                       (regex, e))
 
         if self._default_expiration is None:
+
           expiration = 0
         elif entry.expiration is None:
+
           expiration = self._default_expiration
         else:
           expiration = appinfo.ParseExpiration(entry.expiration)
@@ -2594,6 +3107,7 @@ class StaticFileConfigMatcher(object):
         if the_match:
           return mimetype
 
+
     unused_filename, extension = os.path.splitext(path)
     return mimetypes.types_map.get(extension, 'application/octet-stream')
 
@@ -2611,7 +3125,9 @@ class StaticFileConfigMatcher(object):
       if the_match:
         return expiration
 
+
     return self._default_expiration or 0
+
 
 
 
@@ -2675,21 +3191,43 @@ class FileDispatcher(URLDispatcher):
     full_path = self._path_adjuster.AdjustPath(request.path)
     status, data = self._read_data_file(full_path)
     content_type = self._static_file_config_matcher.GetMimeType(request.path)
+    static_file = self._static_file_config_matcher.IsStaticFile(request.path)
     expiration = self._static_file_config_matcher.GetExpiration(request.path)
+    current_etag = self.CreateEtag(data)
+    previous_etag = request.headers.get('if-none-match', None)
 
-    outfile.write('Status: %d\r\n' % status)
-    outfile.write('Content-type: %s\r\n' % content_type)
-    if expiration:
-      outfile.write('Expires: %s\r\n'
-                    % email.Utils.formatdate(time.time() + expiration,
-                                             usegmt=True))
-      outfile.write('Cache-Control: public, max-age=%i\r\n' % expiration)
-    outfile.write('\r\n')
-    outfile.write(data)
+    if previous_etag and previous_etag.strip('"') == current_etag:
+      outfile.write('Status: %s\r\n' % httplib.NOT_MODIFIED)
+      outfile.write('ETag: "%s"\r\n' % current_etag)
+      outfile.write('\r\n')
+    else:
+      outfile.write('Status: %d\r\n' % status)
+      outfile.write('Content-type: %s\r\n' % content_type)
+      if expiration:
+
+        outfile.write('Expires: %s\r\n'
+                      % email.Utils.formatdate(time.time() + expiration,
+                                               usegmt=True))
+        outfile.write('Cache-Control: public, max-age=%i\r\n' % expiration)
+      if static_file:
+        outfile.write('ETag: "%s"\r\n' % current_etag)
+      outfile.write('\r\n')
+      outfile.write(data)
 
   def __str__(self):
     """Returns a string representation of this dispatcher."""
     return 'File dispatcher'
+
+  @staticmethod
+  def CreateEtag(data):
+    """Returns string of hash of file content, unique per URL."""
+    data_crc = zlib.crc32(data)
+    return base64.b64encode(str(data_crc))
+
+
+
+
+
 
 
 _IGNORE_RESPONSE_HEADERS = frozenset([
@@ -2714,6 +3252,7 @@ class AppServerResponse(object):
     large_response: Indicates that response is permitted to be larger than
       MAX_RUNTIME_RESPONSE_SIZE.
   """
+
 
   __slots__ = ['status_code',
                'status_message',
@@ -2760,6 +3299,7 @@ class AppServerResponse(object):
     Returns:
       String representation of header with line breaks cleaned up.
     """
+
     header_list = []
     for header in self.headers.headers:
       header = header.rstrip('\n\r')
@@ -2817,10 +3357,12 @@ def ParseStatusRewriter(response):
 
 def CacheRewriter(response):
   """Update the cache header."""
-  if not 'Cache-Control' in response.headers:
-    response.headers['Cache-Control'] = 'no-cache'
-    if not 'Expires' in response.headers:
-      response.headers['Expires'] = 'Fri, 01 Jan 1990 00:00:00 GMT'
+
+  if response.status_code != httplib.NOT_MODIFIED:
+    if not 'Cache-Control' in response.headers:
+      response.headers['Cache-Control'] = 'no-cache'
+      if not 'Expires' in response.headers:
+        response.headers['Expires'] = 'Fri, 01 Jan 1990 00:00:00 GMT'
 
 
 def ContentLengthRewriter(response):
@@ -2829,12 +3371,18 @@ def ContentLengthRewriter(response):
   Even though Content-Length is not a user modifiable header, App Engine
   sends a correct Content-Length to the user based on the actual response.
   """
-  current_position = response.body.tell()
-  response.body.seek(0, 2)
 
-  response.headers['Content-Length'] = str(response.body.tell() -
-                                           current_position)
-  response.body.seek(current_position)
+  if response.status_code != httplib.NOT_MODIFIED:
+    current_position = response.body.tell()
+    response.body.seek(0, 2)
+
+
+
+    response.headers['Content-Length'] = str(response.body.tell() -
+                                             current_position)
+    response.body.seek(current_position)
+  elif 'Content-Length' in response.headers:
+    del response.headers['Content-Length']
 
 
 def CreateResponseRewritersChain():
@@ -2913,12 +3461,15 @@ def RewriteResponse(response_file,
 
   response = AppServerResponse(response_file)
   for response_rewriter in response_rewriters:
+
+
     if response_rewriter.func_code.co_argcount == 1:
       response_rewriter(response)
     else:
       response_rewriter(response, request_headers)
 
   return response
+
 
 
 
@@ -2938,8 +3489,18 @@ class ModuleManager(object):
       modules: Dictionary containing monitored modules.
     """
     self._modules = modules
+
     self._default_modules = self._modules.copy()
+
     self._save_path_hooks = sys.path_hooks[:]
+
+
+
+
+
+
+
+
     self._modification_times = {}
 
   @staticmethod
@@ -2959,6 +3520,7 @@ class ModuleManager(object):
     if module_file is None:
       return None
 
+
     source_file = module_file[:module_file.rfind('py') + 2]
 
     if is_file(source_file):
@@ -2972,13 +3534,16 @@ class ModuleManager(object):
       True if one or more files have been modified, False otherwise.
     """
     for name, (mtime, fname) in self._modification_times.iteritems():
+
       if name not in self._modules:
         continue
 
       module = self._modules[name]
 
+
       if not os.path.isfile(fname):
         return True
+
 
       if mtime != os.path.getmtime(fname):
         return True
@@ -3005,9 +3570,17 @@ class ModuleManager(object):
     """Clear modules so that when request is run they are reloaded."""
     self._modules.clear()
     self._modules.update(self._default_modules)
+
+
     sys.path_hooks[:] = self._save_path_hooks
+
+
+
+
+
     apiproxy_stub_map.apiproxy.GetPreCallHooks().Clear()
     apiproxy_stub_map.apiproxy.GetPostCallHooks().Clear()
+
 
 
 
@@ -3038,6 +3611,7 @@ def GetVersionObject(isfile=os.path.isfile, open_fn=open):
 
 
 
+
 def _ClearTemplateCache(module_dict=sys.modules):
   """Clear template cache in webapp.template module.
 
@@ -3050,6 +3624,7 @@ def _ClearTemplateCache(module_dict=sys.modules):
   template_module = module_dict.get('google.appengine.ext.webapp.template')
   if template_module is not None:
     template_module.template_cache.clear()
+
 
 
 
@@ -3075,12 +3650,36 @@ def CreateRequestHandler(root_path,
   Returns:
     Sub-class of BaseHTTPRequestHandler.
   """
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   application_module_dict = SetupSharedModules(sys.modules)
 
+
   if require_indexes:
+
     index_yaml_updater = None
   else:
+
     index_yaml_updater = dev_appserver_index.IndexYamlUpdater(root_path)
+
 
   application_config_cache = AppConfigCache()
 
@@ -3103,8 +3702,12 @@ def CreateRequestHandler(root_path,
     """
     server_version = 'Development/1.0'
 
+
+
+
     module_dict = application_module_dict
     module_manager = ModuleManager(application_module_dict)
+
 
     config_cache = application_config_cache
 
@@ -3124,6 +3727,7 @@ def CreateRequestHandler(root_path,
 
     def version_string(self):
       """Returns server's version string used for Server HTTP header."""
+
       return self.server_version
 
     def do_GET(self):
@@ -3163,6 +3767,8 @@ def CreateRequestHandler(root_path,
         outfile: Output file to write response to.
         env_dict: Environment dictionary.
       """
+
+
       request_descriptor, request_file_name = tempfile.mkstemp('.tmp',
                                                                'request.')
 
@@ -3195,6 +3801,9 @@ def CreateRequestHandler(root_path,
 
     def _HandleRequest(self):
       """Handles any type of request and prints exceptions if they occur."""
+
+
+
       server_name = self.headers.get('host') or self.server.server_name
       server_name = server_name.split(':', 1)[0]
 
@@ -3216,8 +3825,11 @@ def CreateRequestHandler(root_path,
 
       tbhandler = cgitb.Hook(file=self.wfile).handle
       try:
+
         if self.module_manager.AreModuleFilesModified():
           self.module_manager.ResetModules()
+
+
 
         implicit_matcher = CreateImplicitMatcher(self.module_dict,
                                                  root_path,
@@ -3238,6 +3850,7 @@ def CreateRequestHandler(root_path,
                                        [implicit_matcher, explicit_matcher])
 
         if require_indexes:
+
           dev_appserver_index.SetupIndexes(config.application, root_path)
 
         outfile = cStringIO.StringIO()
@@ -3252,6 +3865,7 @@ def CreateRequestHandler(root_path,
         response = RewriteResponse(outfile, self.rewriter_chain, self.headers)
 
         if not response.large_response:
+
           position = response.body.tell()
           response.body.seek(0, 2)
           end = response.body.tell()
@@ -3259,8 +3873,12 @@ def CreateRequestHandler(root_path,
           runtime_response_size = end - position
 
           if runtime_response_size > MAX_RUNTIME_RESPONSE_SIZE:
+
+
             response.status_code = 500
             response.status_message = 'Forbidden'
+
+
             if 'content-length' in response.headers:
               del response.headers['content-length']
             new_response = ('HTTP response was too large: %d.  '
@@ -3278,6 +3896,9 @@ def CreateRequestHandler(root_path,
         self.wfile.write('Content-Type: text/html\r\n\r\n')
         self.wfile.write('<pre>%s</pre>' % cgi.escape(msg))
       except KeyboardInterrupt, e:
+
+
+
         logging.info('Server interrupted by user, terminating')
         self.server.stop_serving_forever()
       except:
@@ -3291,11 +3912,20 @@ def CreateRequestHandler(root_path,
           self.wfile.write(response.header_data)
           self.wfile.write('\r\n')
           if self.command != 'HEAD':
+
             shutil.copyfileobj(response.body, self.wfile, COPY_BLOCK_SIZE)
           elif response.body:
             logging.warning('Dropping unexpected body in response '
                             'to HEAD request')
         except (IOError, OSError), e:
+
+
+
+
+
+
+
+
           if e.errno != errno.EPIPE:
             raise e
         except socket.error, e:
@@ -3303,6 +3933,8 @@ def CreateRequestHandler(root_path,
             raise e
         else:
           if index_yaml_updater is not None:
+
+
             index_yaml_updater.UpdateIndexYaml()
 
     def log_error(self, format, *args):
@@ -3311,12 +3943,15 @@ def CreateRequestHandler(root_path,
 
     def log_message(self, format, *args):
       """Redirect log messages through the logging module."""
+
+
       if self.channel_poll_path_re.match(self.path):
         logging.debug(format, *args)
       else:
         logging.info(format, *args)
 
   return DevAppServerRequestHandler
+
 
 
 
@@ -3341,6 +3976,8 @@ def ReadAppConfig(appinfo_path, parse_app_config=appinfo_includes.Parse):
     raise InvalidAppConfigError(
         'Application configuration could not be read from "%s"' % appinfo_path)
   try:
+
+
     return parse_app_config(appinfo_file)
   finally:
     appinfo_file.close()
@@ -3405,7 +4042,9 @@ def CreateURLMatcherFromMaps(root_path,
     elif handler_type in (appinfo.STATIC_FILES, appinfo.STATIC_DIR):
       dispatcher = file_dispatcher
     else:
+
       raise InvalidAppConfigError('Unknown handler type "%s"' % handler_type)
+
 
     regex = url_map.url
     path = url_map.GetHandler()
@@ -3440,9 +4079,16 @@ class AppConfigCache(object):
   objects and not access its members.
   """
 
+
   path = None
+
+
+
+
   mtime = None
+
   config = None
+
   matcher = None
 
 
@@ -3478,9 +4124,11 @@ def LoadAppConfig(root_path,
 
     if os.path.isfile(appinfo_path):
       if cache is not None:
+
         mtime = os.path.getmtime(appinfo_path)
         if cache.path == appinfo_path and cache.mtime == mtime:
           return (cache.config, cache.matcher)
+
 
         cache.config = cache.matcher = cache.path = None
         cache.mtime = mtime
@@ -3492,8 +4140,11 @@ def LoadAppConfig(root_path,
           if config.default_expiration:
             default_expiration = config.default_expiration
           else:
+
+
             default_expiration = '0'
         else:
+
           default_expiration = None
 
         matcher = create_matcher(root_path,
@@ -3542,6 +4193,7 @@ def ReadCronConfig(croninfo_path, parse_cron_config=croninfo.LoadSingleCron):
 
 
 
+
 def SetupStubs(app_id, **config):
   """Sets up testing stubs of APIs.
 
@@ -3555,7 +4207,7 @@ def SetupStubs(app_id, **config):
     login_url: Relative URL which should be used for handling user login/logout.
     blobstore_path: Path to the directory to store Blobstore blobs in.
     datastore_path: Path to the file to store Datastore file stub data in.
-    matcher_path: Path to the file to store Matcher stub data in.
+    prospective_search_path: Path to the file to store Prospective Search stub data in.
     use_sqlite: Use the SQLite stub for the datastore.
     history_path: DEPRECATED, No-op.
     clear_datastore: If the datastore should be cleared on startup.
@@ -3563,6 +4215,12 @@ def SetupStubs(app_id, **config):
     smtp_port: SMTP port.
     smtp_user: SMTP user.
     smtp_password: SMTP password.
+    rdbms_sqlite_path: Path to the sqlite3 file for the RDBMS API.
+    mysql_host: MySQL host.
+    mysql_port: MySQL port.
+    mysql_user: MySQL user.
+    mysql_password: MySQL password.
+    mysql_socket: MySQL socket.
     enable_sendmail: Whether to use sendmail as an alternative to SMTP.
     show_mail_body: Whether to log the body of emails.
     remove: Used for dependency injection.
@@ -3577,15 +4235,22 @@ def SetupStubs(app_id, **config):
     address: The host that this dev_appsever is running on. Defaults to
       localhost.
   """
+
   root_path = config.get('root_path', None)
   login_url = config['login_url']
   blobstore_path = config['blobstore_path']
   datastore_path = config['datastore_path']
   clear_datastore = config['clear_datastore']
-  matcher_path = config.get('matcher_path', '')
-  clear_matcher = config.get('clear_matcher', False)
+  prospective_search_path = config.get('prospective_search_path', '')
+  clear_prospective_search = config.get('clear_prospective_search', False)
   use_sqlite = config.get('use_sqlite', False)
   require_indexes = config.get('require_indexes', False)
+  rdbms_sqlite_path = config.get('rdbms_sqlite_path', '')
+  mysql_host = config.get('mysql_host', None)
+  mysql_port = config.get('mysql_port', 3306)
+  mysql_user = config.get('mysql_user', None)
+  mysql_password = config.get('mysql_password', None)
+  mysql_socket = config.get('mysql_socket', None)
   smtp_host = config.get('smtp_host', None)
   smtp_port = config.get('smtp_port', 25)
   smtp_user = config.get('smtp_user', '')
@@ -3601,16 +4266,18 @@ def SetupStubs(app_id, **config):
 
   os.environ['APPLICATION_ID'] = app_id
 
-  if clear_matcher and matcher_path:
-    if os.path.lexists(matcher_path):
-      logging.info('Attempting to remove file at %s', matcher_path)
+  if clear_prospective_search and prospective_search_path:
+
+    if os.path.lexists(prospective_search_path):
+      logging.info('Attempting to remove file at %s', prospective_search_path)
       try:
-        remove(matcher_path)
+        remove(prospective_search_path)
       except OSError, e:
         logging.warning('Removing file failed: %s', e)
 
   if clear_datastore:
     path = datastore_path
+
     if os.path.lexists(path):
       logging.info('Attempting to remove file at %s', path)
       try:
@@ -3644,6 +4311,29 @@ def SetupStubs(app_id, **config):
       'urlfetch',
       urlfetch_stub.URLFetchServiceStub())
 
+  if ((mysql_host and mysql_host != 'localhost') or mysql_port != 3306 or
+      mysql_user or mysql_password or mysql_socket):
+
+
+
+    from google.appengine import api
+    from google.appengine.api import rdbms_mysqldb
+    sys.modules['google.appengine.api.rdbms'] = rdbms_mysqldb
+    api.rdbms = rdbms_mysqldb
+
+    rdbms_mysqldb.SetConnectKwargs(host=mysql_host, port=mysql_port,
+                                   user=mysql_user, passwd=mysql_password,
+                                   unix_socket=mysql_socket)
+    rdbms_mysqldb.connect(database='')
+  else:
+
+    from google.appengine import api
+    from google.appengine.api import rdbms_sqlite
+    sys.modules['google.appengine.api.rdbms'] = rdbms_sqlite
+    api.rdbms = rdbms_sqlite
+
+    rdbms_sqlite.SetSqliteFile(rdbms_sqlite_path)
+    rdbms_sqlite.connect(database='')
 
   apiproxy_stub_map.apiproxy.RegisterStub(
       'mail',
@@ -3679,9 +4369,15 @@ def SetupStubs(app_id, **config):
 
   apiproxy_stub_map.apiproxy.RegisterStub(
       'matcher',
-      matcher_stub.MatcherStub(
-          matcher_path,
+      prospective_search_stub.ProspectiveSearchStub(
+          prospective_search_path,
           apiproxy_stub_map.apiproxy.GetStub('taskqueue')))
+
+
+
+
+
+
 
 
 
@@ -3696,6 +4392,7 @@ def SetupStubs(app_id, **config):
   except ImportError, e:
     logging.warning('Could not initialize images API; you are likely missing '
                     'the Python "PIL" module. ImportError: %s', e)
+
     from google.appengine.api.images import images_not_implemented_stub
     apiproxy_stub_map.apiproxy.RegisterStub(
         'images',
@@ -3705,6 +4402,10 @@ def SetupStubs(app_id, **config):
   apiproxy_stub_map.apiproxy.RegisterStub(
       'blobstore',
       blobstore_stub.BlobstoreServiceStub(blob_storage))
+
+  apiproxy_stub_map.apiproxy.RegisterStub(
+      'file',
+      file_service_stub.FileServiceStub(blob_storage))
 
 
 def CreateImplicitMatcher(
@@ -3734,6 +4435,9 @@ def CreateImplicitMatcher(
   """
   url_matcher = URLMatcher()
   path_adjuster = create_path_adjuster(root_path)
+
+
+
 
   login_dispatcher = create_local_dispatcher(sys.modules, path_adjuster,
                                              dev_appserver_login.main)
@@ -3862,6 +4566,10 @@ def CreateServer(root_path,
   Returns:
     Instance of BaseHTTPServer.HTTPServer that's ready to start accepting.
   """
+
+
+
+
   absolute_root_path = os.path.realpath(root_path)
 
   SetupTemplates(template_dir)
@@ -3875,10 +4583,14 @@ def CreateServer(root_path,
                                        require_indexes,
                                        static_caching)
 
+
   if absolute_root_path not in python_path_list:
+
+
     python_path_list.insert(0, absolute_root_path)
 
   server = HTTPServerWithScheduler((serve_address, port), handler_class)
+
 
   queue_stub = apiproxy_stub_map.apiproxy.GetStub('taskqueue')
   if queue_stub:
@@ -3935,6 +4647,9 @@ class HTTPServerWithScheduler(BaseHTTPServer.HTTPServer):
       if readable:
         return self.socket.accept()
       current_time = time_func()
+
+
+
       if self._events and current_time >= self._events[0][0]:
         unused_eta, runnable = heapq.heappop(self._events)
         request_tuple = runnable()

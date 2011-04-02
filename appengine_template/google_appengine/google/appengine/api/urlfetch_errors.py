@@ -14,9 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+
+
 """Errors used in the urlfetch API
 developers.
 """
+
+
+
+
+
 
 
 
@@ -55,3 +63,6 @@ class ResponseTooLargeError(Error):
 class InvalidMethodError(Error):
   """Raised when an invalid value for 'method' is provided"""
 
+
+class SSLCertificateError(Error):
+  """Raised when an invalid server certificate is presented."""

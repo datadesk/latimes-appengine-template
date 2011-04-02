@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """A thin wrapper around datastore query RPC calls.
 
 This provides wrappers around the internal only datastore_pb library and is
@@ -25,6 +28,11 @@ RPC syntax can change without affecting client libraries.
 Any class, function, field or argument starting with an '_' is for INTERNAL use
 only and should not be used by developers!
 """
+
+
+
+
+
 
 
 __all__ = ['Batch',
@@ -41,8 +49,7 @@ __all__ = ['Batch',
            'QueryOptions',
            'ResultsIterator',
            'make_filter',
-           ]
-
+          ]
 
 import base64
 import pickle
@@ -53,6 +60,24 @@ from google.appengine.api import datastore_types
 from google.appengine.datastore import datastore_index
 from google.appengine.datastore import datastore_pb
 from google.appengine.datastore import datastore_rpc
+
+
+class _BaseComponent(object):
+  """A base class for query components.
+
+  Currently just implements basic == and != functions.
+  """
+
+  def __eq__(self, other):
+    if self.__class__ is not other.__class__:
+      return NotImplemented
+    return self is other or self.__dict__ == other.__dict__
+
+  def __ne__(self, other):
+    equal = self.__eq__(other)
+    if equal is NotImplemented:
+      return equal
+    return not equal
 
 
 def make_filter(name, op, values):
@@ -68,23 +93,22 @@ def make_filter(name, op, values):
     values, otherwise a PropertyFilter for the single value.
 
   Raises:
-    BadPropertyError if the property name is invalid. BadValueError if the
-    property did not validate correctly or the value was an empty list. Other
-    exception types (like OverflowError) if the property value does not meet
-    type-specific criteria.
+    datastore_errors.BadPropertyError: if the property name is invalid.
+    datastore_errors.BadValueError: if the property did not validate correctly
+      or the value was an empty list.
+    Other exception types (like OverflowError): if the property value does not
+      meet type-specific criteria.
   """
   datastore_types.ValidateProperty(name, values, read_only=True)
   properties = datastore_types.ToPropertyPb(name, values)
   if isinstance(properties, list):
-    filters = []
-    for prop in properties:
-      filters.append(PropertyFilter(op, prop))
+    filters = [PropertyFilter(op, prop) for prop in properties]
     return CompositeFilter(CompositeFilter.AND, filters)
   else:
     return PropertyFilter(op, properties)
 
 
-class FilterPredicate(object):
+class FilterPredicate(_BaseComponent):
   """An abstract base class for all query filters.
 
   All sub-classes must be immutable as these are often stored without creating a
@@ -98,6 +122,19 @@ class FilterPredicate(object):
   def _to_pbs(self):
     """Internal only function to generate a list of filter pbs."""
     return [self._to_pb()]
+
+  def __eq__(self, other):
+
+    if self.__class__ is other.__class__:
+      return super(FilterPredicate, self).__eq__(other)
+
+    if other.__class__ is CompositeFilter:
+      return other._op in [CompositeFilter.AND] and [self] == other._filters
+
+    if (self.__class__ is CompositeFilter and
+        isinstance(other, FilterPredicate)):
+      return self._op == CompositeFilter.AND and self._filters == [other]
+    return NotImplemented
 
 
 class PropertyFilter(FilterPredicate):
@@ -122,10 +159,10 @@ class PropertyFilter(FilterPredicate):
       value: A entity_pb.Property, the property and value to compare against.
 
     Raises:
-      BadArgumentError if op has an unsupported value or value is not an
-      entity_pb.Property.
+      datastore_errors.BadArgumentError if op has an unsupported value or value
+      is not an entity_pb.Property.
     """
-    if not op in self._OPERATORS:
+    if op not in self._OPERATORS:
       raise datastore_errors.BadArgumentError('unknown operator: %r' % (op,))
     if not isinstance(value, entity_pb.Property):
       raise datastore_errors.BadArgumentError(
@@ -138,7 +175,7 @@ class PropertyFilter(FilterPredicate):
 
   def __getstate__(self):
     raise pickle.PicklingError(
-        "Pickling of datastore_query.PropertyFilter is unsupported.")
+        'Pickling of datastore_query.PropertyFilter is unsupported.')
 
   def _to_pb(self):
     """Returns the internal only pb representation."""
@@ -168,8 +205,8 @@ class CompositeFilter(FilterPredicate):
       filters: A list of one or more filters to combine
 
     Raises:
-      BadArgumentError if op is not in CompsiteFilter.OPERATORS or
-      filters is not a non-empty list containing only FilterPredicates.
+      datastore_errors.BadArgumentError if op is not in CompsiteFilter.OPERATORS
+      or filters is not a non-empty list containing only FilterPredicates.
     """
     if not op in self._OPERATORS:
       raise datastore_errors.BadArgumentError('unknown operator: %r' % (op,))
@@ -178,24 +215,29 @@ class CompositeFilter(FilterPredicate):
           'filters argument should be a non-empty list (%r)' % (filters,))
 
     super(CompositeFilter, self).__init__()
-    self.__op = op
-    self.__filters = []
-    for filter in filters:
-      if isinstance(filter, CompositeFilter) and filter.__op == self.__op:
-        self.__filters.extend(filter.__filters)
-      elif isinstance(filter, FilterPredicate):
-        self.__filters.append(filter)
+    self._op = op
+    self._filters = []
+    for f in filters:
+      if isinstance(f, CompositeFilter) and f._op == self._op:
+
+
+        self._filters.extend(f._filters)
+      elif isinstance(f, FilterPredicate):
+        self._filters.append(f)
       else:
         raise datastore_errors.BadArgumentError(
             'filters argument must be a list of FilterPredicates, found (%r)' %
-            (filter,))
+            (f,))
 
   def _to_pbs(self):
     """Returns the internal only pb representation."""
-    return [filter._to_pb() for filter in self.__filters]
 
 
-class Order(object):
+
+    return [f._to_pb() for f in self._filters]
+
+
+class Order(_BaseComponent):
   """A base class that represents a sort order on a query.
 
   All sub-classes must be immutable as these are often stored without creating a
@@ -206,6 +248,18 @@ class Order(object):
     """Internal only function to generate a filter pb."""
     raise NotImplementedError
 
+  def __eq__(self, other):
+    if self.__class__ is other.__class__:
+      return super(Order, self).__eq__(other)
+
+    if other.__class__ is CompositeOrder:
+      return [self] == other._orders
+
+    if (self.__class__ is CompositeOrder and
+        isinstance(other, Order)):
+      return self._orders == [other]
+    return NotImplemented
+
 
 class PropertyOrder(Order):
   """An immutable class that represents a sort order for a single property."""
@@ -214,30 +268,31 @@ class PropertyOrder(Order):
   DESCENDING = datastore_pb.Query_Order.DESCENDING
   _DIRECTIONS = frozenset([ASCENDING, DESCENDING])
 
-  def __init__(self, property, direction=ASCENDING):
+  def __init__(self, prop, direction=ASCENDING):
     """Constructor.
 
     Args:
-      property: the name of the property by which to sort.
-      direction: the direction in which to sort the given property.
+      prop: the name of the prop by which to sort.
+      direction: the direction in which to sort the given prop.
 
     Raises:
-      BadArgumentError if the property name or direction is invalid.
+      datastore_errors.BadArgumentError if the prop name or direction is
+      invalid.
     """
-    datastore_types.ValidateString(property,
-                                   'property',
+    datastore_types.ValidateString(prop,
+                                   'prop',
                                    datastore_errors.BadArgumentError)
     if not direction in self._DIRECTIONS:
       raise datastore_errors.BadArgumentError('unknown direction: %r' %
                                               (direction,))
-
+    super(PropertyOrder, self).__init__()
     self.__order = datastore_pb.Query_Order()
-    self.__order.set_property(property.encode('utf-8'))
+    self.__order.set_property(prop.encode('utf-8'))
     self.__order.set_direction(direction)
 
   def __getstate__(self):
     raise pickle.PicklingError(
-        "Pickling of datastore_query.PropertyOrder is unsupported.")
+        'Pickling of datastore_query.PropertyOrder is unsupported.')
 
   def _to_pb(self):
     """Returns the internal only pb representation."""
@@ -264,23 +319,24 @@ class CompositeOrder(Order):
       raise datastore_errors.BadArgumentError(
           'orders argument should be list (%r)' % (orders,))
 
-    self.__orders = []
+    super(CompositeOrder, self).__init__()
+    self._orders = []
     for order in orders:
       if isinstance(order, CompositeOrder):
-        self.__orders.extend(order.__orders)
+        self._orders.extend(order._orders)
       elif isinstance(order, Order):
-        self.__orders.append(order)
+        self._orders.append(order)
       else:
         raise datastore_errors.BadArgumentError(
             'orders argument should only contain Order (%r)' % (order,))
 
   def size(self):
     """Returns the number of sub-orders the instance contains."""
-    return len(self.__orders)
+    return len(self._orders)
 
   def _to_pbs(self):
     """Returns an ordered list of internal only pb representations."""
-    return [order._to_pb() for order in self.__orders]
+    return [order._to_pb() for order in self._orders]
 
 
 class FetchOptions(datastore_rpc.Configuration):
@@ -305,7 +361,7 @@ class FetchOptions(datastore_rpc.Configuration):
     """If a Cursor should be returned with the fetched results.
 
     Raises:
-      BadArgumentError if value is not a bool.
+      datastore_errors.BadArgumentError if value is not a bool.
     """
     if not isinstance(value, bool):
       raise datastore_errors.BadArgumentError(
@@ -320,7 +376,8 @@ class FetchOptions(datastore_rpc.Configuration):
     on datastore_rpc.Connection.config.
 
     Raises:
-      BadArgumentError if value is not a integer or is less than zero.
+      datastore_errors.BadArgumentError if value is not a integer or is less
+      than zero.
     """
     datastore_types.ValidateInteger(value,
                                     'offset',
@@ -333,7 +390,8 @@ class FetchOptions(datastore_rpc.Configuration):
     """The number of results to attempt to retrieve in a batch.
 
     Raises:
-      BadArgumentError if value is not a integer or is not greater than zero.
+      datastore_errors.BadArgumentError if value is not a integer or is not
+      greater than zero.
     """
     datastore_types.ValidateInteger(value,
                                     'batch_size',
@@ -356,6 +414,7 @@ class QueryOptions(FetchOptions):
   but in that case some options will be ignored, see below for details.
   """
 
+
   ORDER_FIRST = datastore_pb.Query.ORDER_FIRST
   ANCESTOR_FIRST = datastore_pb.Query.ANCESTOR_FIRST
   FILTER_FIRST = datastore_pb.Query.FILTER_FIRST
@@ -366,7 +425,7 @@ class QueryOptions(FetchOptions):
     """If the query should only return keys.
 
     Raises:
-      BadArgumentError if value is not a bool.
+      datastore_errors.BadArgumentError if value is not a bool.
     """
     if not isinstance(value, bool):
       raise datastore_errors.BadArgumentError(
@@ -378,7 +437,8 @@ class QueryOptions(FetchOptions):
     """Limit on the number of results to return.
 
     Raises:
-      BadArgumentError if value is not an integer or is less than zero.
+      datastore_errors.BadArgumentError if value is not an integer or is less
+      than zero.
     """
     datastore_types.ValidateInteger(value,
                                     'limit',
@@ -391,7 +451,8 @@ class QueryOptions(FetchOptions):
     """Number of results to attempt to return on the initial request.
 
     Raises:
-      BadArgumentError if value is not an integer or is not greater than zero.
+      datastore_errors.BadArgumentError if value is not an integer or is not
+      greater than zero.
     """
     datastore_types.ValidateInteger(value,
                                     'prefetch_size',
@@ -406,7 +467,7 @@ class QueryOptions(FetchOptions):
     Ignored if present on datastore_rpc.Connection.config.
 
     Raises:
-      BadArgumentError if value is not a Cursor.
+      datastore_errors.BadArgumentError if value is not a Cursor.
     """
     if not isinstance(value, Cursor):
       raise datastore_errors.BadArgumentError(
@@ -421,7 +482,7 @@ class QueryOptions(FetchOptions):
     Ignored if present on datastore_rpc.Connection.config.
 
     Raises:
-      BadArgumentError if value is not a Cursor.
+      datastore_errors.BadArgumentError if value is not a Cursor.
     """
     if not isinstance(value, Cursor):
       raise datastore_errors.BadArgumentError(
@@ -434,7 +495,7 @@ class QueryOptions(FetchOptions):
     """Hint on how the datastore should plan the query.
 
     Raises:
-      BadArgumentError if value is not a known hint.
+      datastore_errors.BadArgumentError if value is not a known hint.
     """
     if value not in QueryOptions._HINTS:
       raise datastore_errors.BadArgumentError('Unknown query hint (%r)' %
@@ -442,7 +503,7 @@ class QueryOptions(FetchOptions):
     return value
 
 
-class Cursor(object):
+class Cursor(_BaseComponent):
   """An immutable class that represents a relative position in a query.
 
   The position denoted by a Cursor is relative to a result in a query even
@@ -461,6 +522,9 @@ class Cursor(object):
     query. If such a Cursor is used as an end_cursor no results will ever be
     returned.
     """
+
+
+    super(Cursor, self).__init__()
     if _cursor_pb is not None:
       if not isinstance(_cursor_pb, datastore_pb.CompiledCursor):
         raise datastore_errors.BadArgumentError(
@@ -488,8 +552,8 @@ class Cursor(object):
       A Cursor.
 
     Raises:
-      BadValueError: if the cursor argument does not represent a serialized
-        cursor.
+      datastore_errors.BadValueError if the cursor argument does not represent a
+      serialized cursor.
     """
     try:
       cursor_pb = datastore_pb.CompiledCursor(cursor)
@@ -497,6 +561,12 @@ class Cursor(object):
       raise datastore_errors.BadValueError(
           'Invalid cursor %s. Details: %s' % (cursor, e))
     except Exception, e:
+
+
+
+
+
+
       if e.__class__.__name__ == 'ProtocolBufferDecodeError':
         raise datastore_errors.BadValueError(
             'Invalid cursor %s. Details: %s' % (cursor, e))
@@ -526,19 +596,21 @@ class Cursor(object):
       A Cursor.
 
     Raises:
-      BadValueError: if the cursor argument is not a string type of does not
-        represent a serialized cursor.
+      datastore_errors.BadValueError if the cursor argument is not a string
+      type of does not represent a serialized cursor.
     """
     if not isinstance(cursor, basestring):
       raise datastore_errors.BadValueError(
           'cursor argument should be str or unicode (%r)' % (cursor,))
 
     try:
-      bytes = base64.b64decode(str(cursor).replace('-', '+').replace('_', '/'))
+
+
+      decoded_bytes = base64.b64decode(str(cursor).replace('-', '+').replace('_', '/'))
     except (ValueError, TypeError), e:
       raise datastore_errors.BadValueError(
           'Invalid cursor %s. Details: %s' % (cursor, e))
-    return Cursor.from_bytes(bytes)
+    return Cursor.from_bytes(decoded_bytes)
 
   @staticmethod
   def _from_query_result(query_result):
@@ -573,7 +645,7 @@ class Cursor(object):
     return self.__compiled_cursor
 
 
-class Query(object):
+class Query(_BaseComponent):
   """An immutable class that represents a query signature.
 
   A query signature consists of a source of entities (specified as app,
@@ -596,7 +668,7 @@ class Query(object):
       order: Optional Order in which to return results.
 
     Raises:
-      BadArgumentError if any argument is invalid.
+      datastore_errors.BadArgumentError if any argument is invalid.
     """
     if kind is not None:
       datastore_types.ValidateString(kind,
@@ -612,6 +684,7 @@ class Query(object):
           'filter_predicate should be datastore_query.FilterPredicate (%r)' %
           (ancestor,))
 
+    super(Query, self).__init__()
     if isinstance(order, CompositeOrder):
       if order.size() == 0:
         order = None
@@ -639,7 +712,7 @@ class Query(object):
       A Batcher that implicitly fetches query results asynchronously.
 
     Raises:
-      BadArgumentError if any of the arugments are invalid.
+      datastore_errors.BadArgumentError if any of the arguments are invalid.
     """
     return Batcher(query_options, self.run_async(conn, query_options))
 
@@ -655,13 +728,15 @@ class Query(object):
       batches can be retrieved by calling Batch.next_batch/next_batch_async.
 
     Raises:
-      BadArgumentError if any of the arguments are invalid.
+      datastore_errors.BadArgumentError if any of the arguments are invalid.
     """
     if not isinstance(conn, datastore_rpc.BaseConnection):
       raise datastore_errors.BadArgumentError(
           'conn should be a datastore_rpc.BaseConnection (%r)' % (conn,))
 
     if not isinstance(query_options, QueryOptions):
+
+
       query_options = QueryOptions(config=query_options)
 
     start_cursor = query_options.start_cursor
@@ -674,11 +749,12 @@ class Query(object):
 
   def __getstate__(self):
     raise pickle.PicklingError(
-        "Pickling of datastore_query.Query is unsupported.")
+        'Pickling of datastore_query.Query is unsupported.')
 
   def _to_pb(self, conn, query_options):
     """Returns the internal only pb representation."""
     pb = datastore_pb.Query()
+
 
     pb.set_app(self.__app.encode('utf-8'))
     datastore_types.SetNamespace(pb, self.__namespace)
@@ -687,52 +763,46 @@ class Query(object):
     if self.__ancestor:
       pb.mutable_ancestor().CopyFrom(self.__ancestor)
 
+
     if self.__filter_predicate:
-      for filter in self.__filter_predicate._to_pbs():
-        pb.add_filter().CopyFrom(filter)
+      for f in self.__filter_predicate._to_pbs():
+        pb.add_filter().CopyFrom(f)
+
 
     if self.__order:
       for order in self.__order._to_pbs():
         pb.add_order().CopyFrom(order)
 
-    keys_only = query_options.keys_only
-    limit = query_options.limit
-    count = query_options.prefetch_size
-    if count is None:
-      count = query_options.batch_size
 
-    if isinstance(conn.config, QueryOptions):
-      if keys_only is None:
-        keys_only = conn.config.keys_only
-      if limit is None:
-        limit = conn.config.limit
-      if count is None:
-        count = conn.config.prefetch_size
-
-    produce_cursors = query_options.produce_cursors
-    if isinstance(conn.config, FetchOptions):
-      if produce_cursors is None:
-        produce_cursors = conn.config.produce_cursors
-      if count is None:
-        count = conn.config.batch_size
-
-    if keys_only:
+    if QueryOptions.keys_only(query_options, conn.config):
       pb.set_keys_only(True)
+
+    if QueryOptions.produce_cursors(query_options, conn.config):
+      pb.set_compile(True)
+
+    limit = QueryOptions.limit(query_options, conn.config)
     if limit is not None:
       pb.set_limit(limit)
+
+    count = QueryOptions.prefetch_size(query_options, conn.config)
+    if count is None:
+      count = QueryOptions.batch_size(query_options, conn.config)
     if count is not None:
       pb.set_count(count)
-    if produce_cursors:
-      pb.set_compile(True)
+
 
     if query_options.offset:
       pb.set_offset(query_options.offset)
 
+
     if query_options.start_cursor is not None:
       pb.mutable_compiled_cursor().CopyFrom(query_options.start_cursor._to_pb())
+
+
     if query_options.end_cursor is not None:
       pb.mutable_end_compiled_cursor().CopyFrom(
           query_options.end_cursor._to_pb())
+
 
     if ((query_options.hint == QueryOptions.ORDER_FIRST and self.__order) or
         (query_options.hint == QueryOptions.ANCESTOR_FIRST and
@@ -740,6 +810,7 @@ class Query(object):
         (query_options.hint == QueryOptions.FILTER_FIRST and pb.
          filter_size() > 0)):
       pb.set_hint(query_options.hint)
+
 
     conn._set_request_read_policy(pb, query_options)
     conn._set_request_transaction(pb)
@@ -753,7 +824,7 @@ class Batch(object):
   This class contains a batch of results returned from the datastore and
   relevant metadata. This metadata includes:
     query: The query that produced this batch
-    fetch_options: The FetchOptions used to run the query. This does not
+    query_options: The QueryOptions used to run the query. This does not
       contained any options passed to the .next_batch() call that created the
       current batch.
     start_cursor, end_cursor: These are the cursors that can be used
@@ -798,9 +869,10 @@ class Batch(object):
       query_options: The QueryOptions used to run the given query.
       query: The Query the batch is derived from.
       conn: A datastore_rpc.Connection to use.
-      fetch_options: FetchOptions to be used by all batches.
       start_cursor: Optional cursor pointing before this batch.
     """
+
+
     self.__query = query
     self.__conn = conn
     self.__query_options = query_options
@@ -917,8 +989,10 @@ class Batch(object):
 
     req = self._to_pb(fetch_options)
 
+
     next_batch = Batch(self.__query_options, self.__query, self.__conn,
                        self.__end_cursor, self._compiled_query)
+
     config = datastore_rpc.Configuration.merge(self.__query_options,
                                                fetch_options)
     return next_batch._make_query_result_rpc_call(
@@ -926,43 +1000,27 @@ class Batch(object):
 
   def __getstate__(self):
     raise pickle.PicklingError(
-        "Pickling of datastore_query.Batch is unsupported.")
+        'Pickling of datastore_query.Batch is unsupported.')
 
   def _to_pb(self, fetch_options=None):
     req = datastore_pb.NextRequest()
 
-    count = None
-    produce_cursors = None
+    if FetchOptions.produce_cursors(fetch_options,
+                                    self.__query_options,
+                                    self.__conn.config):
+      req.set_compile(True)
 
-    if fetch_options is not None:
-      if not isinstance(fetch_options, FetchOptions):
-        raise datastore_errors.BadArgumentError(
-            'fetch_options argument should be datastore_query.FetchOptions '
-            '(%r)' % (fetch_options,))
-      count = fetch_options.batch_size
-      produce_cursors = fetch_options.produce_cursors
-      if fetch_options.offset:
-        req.set_offset(fetch_options.offset)
+    count = FetchOptions.batch_size(fetch_options,
+                                    self.__query_options,
+                                    self.__conn.config)
+    if count is not None:
+      req.set_count(count)
 
-    if produce_cursors is None:
-      produce_cursors = self.__query_options.produce_cursors
-    if count is None:
-      count = self.__query_options.batch_size
-
-    if isinstance(self.__conn.config, FetchOptions):
-      if produce_cursors is None:
-        produce_cursors = self.__conn.config.produce_cursors
-      if count is None:
-        count = self.__conn.config.batch_size
+    if fetch_options is not None and fetch_options.offset:
+      req.set_offset(fetch_options.offset)
 
     req.mutable_cursor().CopyFrom(self.__datastore_cursor)
     self.__datastore_cursor = None
-
-    if count is not None:
-      req.set_count(count)
-    if produce_cursors:
-      req.set_compile(True)
-
     return req
 
   def _make_query_result_rpc_call(self, name, config, req):
@@ -994,10 +1052,13 @@ class Batch(object):
     try:
       self.__conn.check_rpc_success(rpc)
     except datastore_errors.NeedIndexError, exc:
-      yaml = datastore_index.IndexYamlForQuery(
-          *datastore_index.CompositeIndexForQuery(rpc.request)[1:-1])
-      raise datastore_errors.NeedIndexError(
-          str(exc) + '\nThis query needs this index:\n' + yaml)
+
+      if isinstance(rpc.request, datastore_pb.Query):
+        yaml = datastore_index.IndexYamlForQuery(
+            *datastore_index.CompositeIndexForQuery(rpc.request)[1:-1])
+        raise datastore_errors.NeedIndexError(
+            str(exc) + '\nThis query needs this index:\n' + yaml)
+      raise
 
     query_result = rpc.response
     self.__keys_only = query_result.keys_only()
@@ -1008,6 +1069,8 @@ class Batch(object):
         for result in query_result.result_list()]
     if query_result.has_compiled_query():
       self._compiled_query = query_result.compiled_query
+
+
 
     if (query_result.more_results() and
         (isinstance(rpc.request, datastore_pb.Query) or
@@ -1052,10 +1115,7 @@ class Batcher(object):
         Query.run_asyn(query_options).
     """
     self.__next_batch = first_async_batch
-    if query_options and query_options.offset:
-      self.__initial_offset = query_options.offset
-    else:
-      self.__initial_offset = 0
+    self.__initial_offset = QueryOptions.offset(query_options) or 0
     self.__skipped_results = 0
 
   def next(self):
@@ -1085,17 +1145,21 @@ class Batcher(object):
     if not self.__next_batch:
       raise StopIteration
 
+
     batch = self.__next_batch.get_result()
     self.__next_batch = None
     self.__skipped_results += batch.skipped_results
+
 
     needed_results = min_batch_size - len(batch.results)
     while (batch.more_results and
            (self.__skipped_results < self.__initial_offset or
             needed_results > 0)):
       if batch.query_options.batch_size:
+
         batch_size = max(batch.query_options.batch_size, needed_results)
       elif needed_results:
+
         batch_size = needed_results
       else:
         batch_size = None
@@ -1106,12 +1170,15 @@ class Batcher(object):
       needed_results = max(0, needed_results - len(next_batch.results))
       batch._extend(next_batch)
 
+
+
+
     self.__next_batch = batch.next_batch_async()
     return batch
 
   def __getstate__(self):
     raise pickle.PicklingError(
-        "Pickling of datastore_query.Batcher is unsupported.")
+        'Pickling of datastore_query.Batcher is unsupported.')
 
   def __iter__(self):
     return self
@@ -1148,6 +1215,7 @@ class ResultsIterator(object):
 
   def cursor(self):
     """Returns a cursor that points just after the last result returned."""
+
     if not self.__current_batch:
       self.__current_batch = self.__batcher.next()
       self.__current_pos = 0
@@ -1163,12 +1231,16 @@ class ResultsIterator(object):
       self.__current_pos = 0
     return self.__current_batch._compiled_query
 
+
   def next(self):
-    """Returns the next query result"""
+    """Returns the next query result."""
     if (not self.__current_batch or
         self.__current_pos >= len(self.__current_batch.results)):
+
       next_batch = self.__batcher.next()
       if not next_batch:
+
+
         raise StopIteration
 
       self.__current_pos = 0

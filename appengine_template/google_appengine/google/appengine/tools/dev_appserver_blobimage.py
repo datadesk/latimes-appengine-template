@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """Dispatcher for dynamic image serving requests.
 
 Classes:
@@ -47,6 +50,8 @@ def CreateBlobImageDispatcher(images_stub):
     New dispatcher capable of dynamic image serving requests.
   """
 
+
+
   from google.appengine.tools import dev_appserver
 
   class BlobImageDispatcher(dev_appserver.URLDispatcher):
@@ -75,20 +80,24 @@ def CreateBlobImageDispatcher(images_stub):
         The tranformed (if necessary) image bytes.
       """
       resize, crop = self._ParseOptions(options)
+
       image_data = images_service_pb.ImageData()
       image_data.set_blob_key(blob_key)
       image = self._images_stub._OpenImageData(image_data)
       original_mime_type = image.format
 
+
       if crop:
         width, height = image.size
         crop_xform = None
         if width > height:
+
           crop_xform = images_service_pb.Transform()
           delta = (width - height) / (width * 2.0)
           crop_xform.set_crop_left_x(delta)
           crop_xform.set_crop_right_x(1.0 - delta)
         elif width < height:
+
           crop_xform = images_service_pb.Transform()
           delta = (height - width) / (height * 2.0)
           top_delta = max(0.0, delta - 0.25)
@@ -98,6 +107,7 @@ def CreateBlobImageDispatcher(images_stub):
         if crop_xform:
           image = self._images_stub._Crop(image, crop_xform)
 
+
       if resize:
         resize_xform = images_service_pb.Transform()
         resize_xform.set_width(resize)
@@ -105,6 +115,8 @@ def CreateBlobImageDispatcher(images_stub):
         image = self._images_stub._Resize(image, resize_xform)
 
       output_settings = images_service_pb.OutputSettings()
+
+
       output_mime_type = images_service_pb.OutputSettings.JPEG
       if original_mime_type in ['PNG', 'GIF']:
         output_mime_type = images_service_pb.OutputSettings.PNG
@@ -129,6 +141,7 @@ def CreateBlobImageDispatcher(images_stub):
           resize = int(match.group(1))
         if match.group(2):
           crop = True
+
 
       if resize and (resize > BlobImageDispatcher._size_limit or
                      resize < 0):
@@ -157,6 +170,7 @@ def CreateBlobImageDispatcher(images_stub):
       elif match.group(2):
         blobkey = ''.join([blobkey, match.group(2)])
       return (blobkey, options)
+
 
     def Dispatch(self,
                  request,
@@ -188,6 +202,8 @@ def CreateBlobImageDispatcher(images_stub):
       except RuntimeError:
         outfile.write('Status: 400\r\n')
       except:
+
+
         outfile.write('Status: 500\r\n')
 
   return BlobImageDispatcher(images_stub)
