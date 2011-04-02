@@ -26,20 +26,23 @@ handlers:
 def execute_from_command_line():
     """
     A command-line utility that will create a virgin Google App Engine
-    project enabled to use Django.
+    project enabled to use Django and other helpers.
     
     The first argument is expected to contain the app_id the creator plans
     to register with Google.
     """
     # Configure command line arguments
-    usage = 'Usage: startappengineproject [app_id]'
-    parser = OptionParser(usage=usage)
+    parser = OptionParser(
+        usage='Usage: startappengineproject [app_id]',
+        description='Creates a virgin Google App Engine project enabled to use Django and other helpers.'
+        )
     parser.add_option(
         "-p", "--projectname",
         action="store",
         type="string",
         dest="project_name",
-        default="project"
+        default="project",
+        help="Provide a custom name for the project directory that will be created. By default it is 'project'"
     )
     
     # Parse the command line arguments
