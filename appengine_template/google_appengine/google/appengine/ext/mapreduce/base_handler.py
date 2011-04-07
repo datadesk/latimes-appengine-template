@@ -15,6 +15,21 @@
 # limitations under the License.
 #
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 """Base handler class for all mapreduce handlers.
 """
 
@@ -24,6 +39,7 @@ import logging
 import simplejson
 
 from google.appengine.ext import webapp
+from google.appengine.ext.mapreduce import errors
 
 
 class Error(Exception):
@@ -105,8 +121,14 @@ class JsonHandler(BaseHandler):
     self.json_response.clear()
     try:
       self.handle()
+    except errors.MissingYamlError:
+      logging.debug("Could not find 'mapreduce.yaml' file.")
+      self.json_response.clear()
+      self.json_response["error_class"] = "Notice"
+      self.json_response["error_message"] = "Could not find 'mapreduce.yaml'"
     except Exception, e:
       logging.exception("Error in JsonHandler, returning exception.")
+
       self.json_response.clear()
       self.json_response["error_class"] = e.__class__.__name__
       self.json_response["error_message"] = str(e)

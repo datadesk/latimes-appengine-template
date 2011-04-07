@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """Stub version of the Task Queue API.
 
 This stub stores tasks and runs them via dev_appserver's AddEvent capability.
@@ -24,6 +27,12 @@ As well as implementing Task Queue API functions, the stub exposes various other
 functions that are used by the dev_appserver's admin console to display the
 application's queues and tasks.
 """
+
+
+
+
+
+
 
 
 
@@ -38,22 +47,32 @@ import random
 import string
 import time
 
-import taskqueue_service_pb
 
 from google.appengine.api import api_base_pb
 from google.appengine.api import apiproxy_stub
 from google.appengine.api import apiproxy_stub_map
 from google.appengine.api import queueinfo
+from google.appengine.api.labs.taskqueue import taskqueue_service_pb
 from google.appengine.runtime import apiproxy_errors
+
+
 
 
 DEFAULT_RATE = '5.00/s'
 
+
+
+
+
 DEFAULT_BUCKET_SIZE = 5
+
 
 MAX_ETA_DELTA_DAYS = 30
 
+
 admin_console_dummy_tasks = {}
+
+
 
 BUILT_IN_HEADERS = set(['x-appengine-queuename',
                         'x-appengine-taskname',
@@ -61,7 +80,10 @@ BUILT_IN_HEADERS = set(['x-appengine-queuename',
                         'x-appengine-development-payload',
                         'content-length'])
 
+
+
 DEFAULT_QUEUE_NAME = 'default'
+
 
 CRON_QUEUE_NAME = '__cron'
 
@@ -74,7 +96,9 @@ class _DummyTaskStore(object):
 
   def __init__(self):
     """Constructor."""
+
     self._sorted_by_name = []
+
     self._sorted_by_eta = []
 
   def _InsertTask(self, task):
@@ -109,12 +133,16 @@ class _DummyTaskStore(object):
       ValueError: if the task store gets corrupted.
     """
     if eta is None:
+
       pos = bisect.bisect_left(self._sorted_by_name, (name,))
+
       tasks = (x[1] for x in self._sorted_by_name[pos:pos + maximum])
       return list(tasks)
     if name is None:
       raise ValueError('must supply name or eta')
+
     pos = bisect.bisect_left(self._sorted_by_eta, (eta, name))
+
     tasks = (x[2] for x in self._sorted_by_eta[pos:pos + maximum])
     return list(tasks)
 
@@ -138,6 +166,7 @@ class _DummyTaskStore(object):
       apiproxy_errors.ApplicationError: If a task with the same name is already
       in the store.
     """
+
     pos = bisect.bisect_left(self._sorted_by_name, (request.task_name(),))
     if (pos < len(self._sorted_by_name) and
         self._sorted_by_name[pos][0] == request.task_name()):
@@ -180,12 +209,14 @@ class _DummyTaskStore(object):
     """
     pos = bisect.bisect_left(self._sorted_by_name, (name,))
     if pos >= len(self._sorted_by_name):
+
       return taskqueue_service_pb.TaskQueueServiceError.UNKNOWN_TASK
     if self._sorted_by_name[pos][1].task_name() != name:
       logging.info('looking for task name %s, got task name %s', name,
                    self._sorted_by_name[pos][1].task_name())
       return taskqueue_service_pb.TaskQueueServiceError.UNKNOWN_TASK
     old_task = self._sorted_by_name.pop(pos)[1]
+
     eta = old_task.eta_usec()
     pos = bisect.bisect_left(self._sorted_by_eta, (eta, name, None))
     if self._sorted_by_eta[pos][2] is not old_task:
@@ -208,7 +239,10 @@ class _DummyTaskStore(object):
       task = taskqueue_service_pb.TaskQueueQueryTasksResponse_Task()
       task.set_task_name(''.join(random.choice(string.ascii_lowercase)
                                  for x in range(20)))
+
       task.set_eta_usec(int(now_sec * 1e6) + random.randint(-10e6, 600e6))
+
+
 
       task.set_creation_time_usec(min(now_sec * 1e6, task.eta_usec()) -
                                   random.randint(0, 2e7))
@@ -282,6 +316,7 @@ def _CompareTasksByEta(a, b):
   return 0
 
 
+
 def _FormatEta(eta_usec):
   """Formats a task ETA as a date string in UTC."""
   eta = datetime.datetime.fromtimestamp(eta_usec/1000000)
@@ -306,13 +341,15 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
   display on a console, where the user may manually execute the tasks.
   """
 
+
   queue_yaml_parser = _ParseQueueYaml
 
   def __init__(self,
                service_name='taskqueue',
                root_path=None,
                auto_task_running=False,
-               task_retry_seconds=30):
+               task_retry_seconds=30,
+               _all_queues_valid=False):
     """Constructor.
 
     Args:
@@ -326,15 +363,35 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
         task fails.
     """
     super(TaskQueueServiceStub, self).__init__(service_name)
+
     self._taskqueues = {}
     self._next_task_id = 1
     self._root_path = root_path
+
+
+
+    self._all_queues_valid = _all_queues_valid
+
+
+
+
+
 
     self._add_event = None
     self._auto_task_running = auto_task_running
     self._task_retry_seconds = task_retry_seconds
 
+
+
+
+
+
+
     self._app_queues = {}
+
+  class _QueueDetails(taskqueue_service_pb.TaskQueueUpdateQueueRequest):
+    def __init__(self, paused=False):
+      self.paused = paused
 
   def _ChooseTaskName(self):
     """Returns a string containing a unique task name."""
@@ -391,14 +448,27 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
           taskqueue_service.proto.
     """
 
-    assert request.add_request_size(), 'taskqueue should prevent empty requests'
 
-    if not self._IsValidQueue(request.add_request(0).queue_name()):
+
+
+
+
+
+
+
+
+    assert request.add_request_size(), 'taskqueue should prevent empty requests'
+    app_id = None
+    if request.add_request(0).has_app_id():
+      app_id = request.add_request(0).app_id()
+
+    if not self._IsValidQueue(request.add_request(0).queue_name(), app_id):
       raise apiproxy_errors.ApplicationError(
           taskqueue_service_pb.TaskQueueServiceError.UNKNOWN_QUEUE)
 
     error_found = False
     task_results_with_chosen_names = []
+
 
     for add_request in request.add_request_list():
       task_result = response.add_taskresult()
@@ -408,6 +478,9 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
           chosen_name = self._ChooseTaskName()
           add_request.set_task_name(chosen_name)
           task_results_with_chosen_names.append(task_result)
+
+
+
         task_result.set_result(
             taskqueue_service_pb.TaskQueueServiceError.SKIPPED)
       else:
@@ -417,12 +490,16 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
     if error_found:
       return
 
+
     if request.add_request(0).has_transaction():
       self._TransactionalBulkAdd(request)
     elif request.add_request(0).has_app_id():
+
+
       self._DummyTaskStoreBulkAdd(request, response)
     else:
       self._NonTransactionalBulkAdd(request, response)
+
 
     for add_request, task_result in zip(request.add_request_list(),
                                         response.taskresult_list()):
@@ -486,6 +563,10 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
         request.add_request(0).queue_name(), [])
     existing_task_names = set(task.task_name() for task in existing_tasks)
 
+
+    def DefineCallback(queue_name, task_name):
+      return lambda: self._RunTask(queue_name, task_name)
+
     for add_request, task_result in zip(request.add_request_list(),
                                         response.taskresult_list()):
       if add_request.task_name() in existing_task_names:
@@ -494,15 +575,15 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
       else:
         existing_tasks.append(add_request)
 
+
       if self._add_event and self._auto_task_running:
         self._add_event(
             add_request.eta_usec() / 1000000.0,
-            lambda: self._RunTask(
-                add_request.queue_name(), add_request.task_name()))
+            DefineCallback(add_request.queue_name(), add_request.task_name()))
 
     existing_tasks.sort(_CompareTasksByEta)
 
-  def _IsValidQueue(self, queue_name):
+  def _IsValidQueue(self, queue_name, app_id):
     """Determines whether a queue is valid, i.e. tasks can be added to it.
 
     Valid queues are the 'default' queue, plus any queues in the queue.yaml
@@ -510,10 +591,13 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
 
     Args:
       queue_name: the name of the queue to validate.
+      app_id: the app_id. Can be None.
 
     Returns:
       True iff queue is valid.
     """
+    if self._all_queues_valid:
+      return True
     if queue_name == DEFAULT_QUEUE_NAME or queue_name == CRON_QUEUE_NAME:
       return True
     queue_info = self.queue_yaml_parser(self._root_path)
@@ -521,6 +605,10 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
       for entry in queue_info.queue:
         if entry.name == queue_name:
           return True
+
+    if app_id is not None:
+      queues = self._app_queues.get(app_id, {})
+      return queues.get(queue_name, None) is not None
     return False
 
   def _RunTask(self, queue_name, task_name):
@@ -553,8 +641,17 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
       def connection_done(myself):
         result = myself.wfile.getvalue()
         myself.wfile_close()
-        first_line, rest = result.split('\n', 1)
-        version, code, rest = first_line.split(' ', 2)
+
+
+        first_line, rest = (result.split('\n', 1) + ['', ''])[:2]
+        version, code, rest = (first_line.split(' ', 2) + ['', '500', ''])[:3]
+
+
+        try:
+          code = int(code)
+        except ValueError:
+          code = 500
+
         if 200 <= int(code) <= 299:
           self.DeleteTask(queue_name, task_name)
           return
@@ -622,6 +719,7 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
           queue['oldest_task'] = ''
         queue['tasks_in_queue'] = len(tasks)
 
+
     if not has_default:
       queue = {}
       queues.append(queue)
@@ -648,6 +746,7 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
       A list of dictionaries, where each dictionary contains one task's
       attributes. E.g.
         [{'name': 'task-123',
+          'queue_name': 'default',
           'url': '/update',
           'method': 'GET',
           'eta': '2009/02/02 05:37:42',
@@ -670,6 +769,7 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
       task = {}
       result_tasks.append(task)
       task['name'] = task_request.task_name()
+      task['queue_name'] = queue_name
       task['url'] = task_request.url()
       method = task_request.method()
       if method == taskqueue_service_pb.TaskQueueAddRequest.GET:
@@ -689,9 +789,12 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
       task['eta_delta'] = _EtaDelta(task_request.eta_usec())
       task['body'] = base64.b64encode(task_request.body())
 
+
+
       headers = [(header.key(), header.value())
                  for header in task_request.header_list()
                  if header.key().lower() not in BUILT_IN_HEADERS]
+
 
       headers.append(('X-AppEngine-QueueName', queue_name))
       headers.append(('X-AppEngine-TaskName', task['name']))
@@ -741,8 +844,9 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
       raise apiproxy_errors.ApplicationError(
           taskqueue_service_pb.TaskQueueServiceError.TOMBSTONED_QUEUE)
 
-    defensive_copy = taskqueue_service_pb.TaskQueueUpdateQueueRequest()
+    defensive_copy = self._QueueDetails()
     defensive_copy.CopyFrom(request)
+
     queues[request.queue_name()] = defensive_copy
 
   def _Dynamic_FetchQueues(self, request, response):
@@ -769,6 +873,10 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
           queue.bucket_refill_per_second())
       response_queue.set_bucket_capacity(queue.bucket_capacity())
       response_queue.set_user_specified_rate(queue.user_specified_rate())
+      if queue.has_max_concurrent_requests():
+        response_queue.set_max_concurrent_requests(
+            queue.max_concurrent_requests())
+      response_queue.set_paused(queue.paused)
 
   def _Dynamic_FetchQueueStats(self, request, response):
     """Local 'random' implementation of the TaskQueueService.FetchQueueStats.
@@ -791,12 +899,14 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
       else:
         stats.set_oldest_eta_usec(store.Oldest())
 
+
       if random.randint(0, 9) > 0:
         scanner_info = stats.mutable_scanner_info()
         scanner_info.set_executed_last_minute(random.randint(0, 10))
         scanner_info.set_executed_last_hour(scanner_info.executed_last_minute()
                                             + random.randint(0, 100))
         scanner_info.set_sampling_duration_seconds(random.random() * 10000.0)
+        scanner_info.set_requests_in_flight(random.randint(0, 10))
 
   def GetDummyTaskStore(self, app_id, queue_name):
     """Get the dummy task store for this app_id/queue_name pair.
@@ -813,7 +923,7 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
     task_store_key = (app_id, queue_name)
     if task_store_key not in admin_console_dummy_tasks:
       store = _DummyTaskStore()
-      if queue_name != CRON_QUEUE_NAME:
+      if not self._all_queues_valid and queue_name != CRON_QUEUE_NAME:
         store.Populate(random.randint(10, 100))
       admin_console_dummy_tasks[task_store_key] = store
     else:
@@ -864,6 +974,26 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
       else:
         response.add_result(store.Delete(taskname))
 
+  def _Dynamic_ForceRun(self, request, response):
+    """Local force run implementation of TaskQueueService.ForceRun.
+
+    Forces running of a task in a queue. This is a no-op here.
+    This will fail randomly for testing.
+
+    Args:
+      request: A taskqueue_service_pb.TaskQueueForceRunRequest.
+      response: A taskqueue_service_pb.TaskQueueForceRunResponse.
+    """
+    if random.random() <= 0.05:
+      response.set_result(
+          taskqueue_service_pb.TaskQueueServiceError.TRANSIENT_ERROR)
+    elif random.random() <= 0.052:
+      response.set_result(
+          taskqueue_service_pb.TaskQueueServiceError.INTERNAL_ERROR)
+    else:
+      response.set_result(
+          taskqueue_service_pb.TaskQueueServiceError.OK)
+
   def _Dynamic_DeleteQueue(self, request, response):
     """Local delete implementation of TaskQueueService.DeleteQueue.
 
@@ -885,12 +1015,12 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
 
     queues[request.queue_name()] = None
 
-  def _Dynamic_PurgeQueue(self, request, response):
-    """Local purge implementation of TaskQueueService.PurgeQueue.
+  def _Dynamic_PauseQueue(self, request, response):
+    """Local pause implementation of TaskQueueService.PauseQueue.
 
     Args:
-      request: A taskqueue_service_pb.TaskQueuePurgeQueueRequest.
-      response: A taskqueue_service_pb.TaskQueuePurgeQueueResponse.
+      request: A taskqueue_service_pb.TaskQueuePauseQueueRequest.
+      response: A taskqueue_service_pb.TaskQueuePauseQueueResponse.
     """
     if not request.queue_name():
       raise apiproxy_errors.ApplicationError(
@@ -905,8 +1035,67 @@ class TaskQueueServiceStub(apiproxy_stub.APIProxyStub):
         raise apiproxy_errors.ApplicationError(
             taskqueue_service_pb.TaskQueueServiceError.TOMBSTONED_QUEUE)
 
-    store = self.GetDummyTaskStore(request.app_id(), request.queue_name())
-    for task in store.Lookup(store.Count()):
-      store.Delete(task.task_name())
+    queues[request.queue_name()].paused = request.pause()
+
+  def _Dynamic_PurgeQueue(self, request, response):
+    """Local purge implementation of TaskQueueService.PurgeQueue.
+
+    Args:
+      request: A taskqueue_service_pb.TaskQueuePurgeQueueRequest.
+      response: A taskqueue_service_pb.TaskQueuePurgeQueueResponse.
+    """
+    if not request.queue_name():
+      raise apiproxy_errors.ApplicationError(
+          taskqueue_service_pb.TaskQueueServiceError.INVALID_QUEUE_NAME)
+
+    if request.has_app_id():
+      queues = self._app_queues.get(request.app_id(), {})
+      if request.queue_name() != DEFAULT_QUEUE_NAME:
+        if request.queue_name() not in queues:
+          raise apiproxy_errors.ApplicationError(
+              taskqueue_service_pb.TaskQueueServiceError.UNKNOWN_QUEUE)
+        elif queues[request.queue_name()] is None:
+          raise apiproxy_errors.ApplicationError(
+              taskqueue_service_pb.TaskQueueServiceError.TOMBSTONED_QUEUE)
+
+      store = self.GetDummyTaskStore(request.app_id(), request.queue_name())
+      for task in store.Lookup(store.Count()):
+        store.Delete(task.task_name())
+    elif (not self._IsValidQueue(request.queue_name(), None)
+          and not request.queue_name() in self._taskqueues):
+
+
+      raise apiproxy_errors.ApplicationError(
+          taskqueue_service_pb.TaskQueueServiceError.UNKNOWN_QUEUE)
 
     self.FlushQueue(request.queue_name())
+
+  def _Dynamic_DeleteGroup(self, request, response):
+    """Local delete implementation of TaskQueueService.DeleteGroup.
+
+    Args:
+      request: A taskqueue_service_pb.TaskQueueDeleteGroupRequest.
+      response: A taskqueue_service_pb.TaskQueueDeleteGroupResponse.
+    """
+    queues = self._app_queues.get(request.app_id(), {})
+
+
+    for queue in queues.iterkeys():
+      store = self.GetDummyTaskStore(request.app_id(), queue)
+      for task in store.Lookup(store.Count()):
+        store.Delete(task.task_name())
+      self.FlushQueue(queue)
+
+    self._app_queues[request.app_id()] = {}
+
+  def _Dynamic_UpdateStorageLimit(self, request, response):
+    """Local implementation of TaskQueueService.UpdateStorageLimit.
+    Args:
+      request: A taskqueue_service_pb.TaskQueueUpdateStorageLimitRequest.
+      response: A taskqueue_service_pb.TaskQueueUpdateStorageLimitResponse.
+    """
+    if request.limit() < 0 or request.limit() > 1000 * (1024 ** 4):
+      raise apiproxy_errors.ApplicationError(
+          taskqueue_service_pb.TaskQueueServiceError.INVALID_REQUEST)
+
+    response.set_new_limit(request.limit())

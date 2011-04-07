@@ -15,7 +15,14 @@
 # limitations under the License.
 #
 
+
+
+
 """Stub version of the images API."""
+
+
+
+
 
 
 
@@ -53,6 +60,7 @@ def _ArgbToRgbaTuple(argb):
   Returns:
     RGBA tuple.
   """
+
   unsigned_argb = argb % 0x100000000
   return ((unsigned_argb >> 16) & 0xFF,
           (unsigned_argb >> 8) & 0xFF,
@@ -69,6 +77,10 @@ def _BackendPremultiplication(color):
   Returns:
     RGBA tuple.
   """
+
+
+
+
   alpha = color[3]
   rgb = color[0:3]
   multiplied = [(x * (alpha + 1)) >> 8 for x in rgb]
@@ -110,6 +122,8 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
     width = request.canvas().width()
     height = request.canvas().height()
     color = _ArgbToRgbaTuple(request.canvas().color())
+
+
     color = _BackendPremultiplication(color)
     canvas = Image.new("RGBA", (width, height), color)
     sources = []
@@ -162,6 +176,7 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
       response: ImagesHistogramResponse, contains histogram of the image.
     """
     image = self._OpenImageData(request.image())
+
     img_format = image.format
     if img_format not in ("BMP", "GIF", "ICO", "JPEG", "PNG", "TIFF"):
       raise apiproxy_errors.ApplicationError(
@@ -170,6 +185,10 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
     red = [0] * 256
     green = [0] * 256
     blue = [0] * 256
+
+
+
+
     for pixel in image.getdata():
       red[int((pixel[0] * pixel[3]) / 255)] += 1
       green[int((pixel[1] * pixel[3]) / 255)] += 1
@@ -226,6 +245,11 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
     if (output_encoding.mime_type() == images_service_pb.OutputSettings.JPEG):
       image_encoding = "JPEG"
 
+
+
+
+
+
       image = image.convert("RGB")
 
     image.save(image_string, image_encoding)
@@ -256,6 +280,7 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
     else:
       image = self._OpenImage(image_data.content())
 
+
     img_format = image.format
     if img_format not in ("BMP", "GIF", "ICO", "JPEG", "PNG", "TIFF"):
       raise apiproxy_errors.ApplicationError(
@@ -283,6 +308,7 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
     try:
       return Image.open(image)
     except IOError:
+
       raise apiproxy_errors.ApplicationError(
           images_service_pb.ImagesServiceError.BAD_IMAGE_DATA)
 
@@ -293,16 +319,20 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
     try:
       datastore.Get(key)
     except datastore_errors.Error:
+
+
       logging.exception('Blob with key %r does not exist', blob_key)
       raise apiproxy_errors.ApplicationError(
           images_service_pb.ImagesServiceError.UNSPECIFIED_ERROR)
 
     blobstore_stub = apiproxy_stub_map.apiproxy.GetStub("blobstore")
 
+
     try:
       blob_file = blobstore_stub.storage.OpenBlob(blob_key)
     except IOError:
       logging.exception('Could not get file for blob_key %r', blob_key)
+
       raise apiproxy_errors.ApplicationError(
           images_service_pb.ImagesServiceError.BAD_IMAGE_DATA)
 
@@ -311,6 +341,7 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
     except IOError:
       logging.exception('Could not open image %r for blob_key %r',
                         blob_file, blob_key)
+
       raise apiproxy_errors.ApplicationError(
           images_service_pb.ImagesServiceError.BAD_IMAGE_DATA)
 
@@ -351,12 +382,17 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
       tuple (width, height) which are both ints of the new ratio.
     """
 
+
     width_ratio = float(req_width) / current_width
     height_ratio = float(req_height) / current_height
 
+
+
     if req_width == 0 or (width_ratio > height_ratio and req_height != 0):
+
       return int(height_ratio * current_width), req_height
     else:
+
       return req_width, int(width_ratio * current_height)
 
   def _Resize(self, image, transform):
@@ -414,6 +450,7 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
           images_service_pb.ImagesServiceError.BAD_TRANSFORM_DATA)
     degrees %= 360
 
+
     degrees = 360 - degrees
     return image.rotate(degrees)
 
@@ -451,6 +488,7 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
       bottom_y = transform.crop_bottom_y()
       self._ValidateCropArg(bottom_y)
 
+
     width, height = image.size
 
     box = (int(transform.crop_left_x() * width),
@@ -480,24 +518,31 @@ class ImagesServiceStub(apiproxy_stub.APIProxyStub):
           images_service_pb.ImagesServiceError.BAD_TRANSFORM_DATA)
     for transform in transforms:
       if transform.has_width() or transform.has_height():
+
         new_image = self._Resize(new_image, transform)
 
       elif transform.has_rotate():
+
         new_image = self._Rotate(new_image, transform)
 
       elif transform.has_horizontal_flip():
+
         new_image = new_image.transpose(Image.FLIP_LEFT_RIGHT)
 
       elif transform.has_vertical_flip():
+
         new_image = new_image.transpose(Image.FLIP_TOP_BOTTOM)
 
       elif (transform.has_crop_left_x() or
           transform.has_crop_top_y() or
           transform.has_crop_right_x() or
           transform.has_crop_bottom_y()):
+
         new_image = self._Crop(new_image, transform)
 
       elif transform.has_autolevels():
+
+
         logging.info("I'm Feeling Lucky autolevels will be visible once this "
                      "application is deployed.")
       else:

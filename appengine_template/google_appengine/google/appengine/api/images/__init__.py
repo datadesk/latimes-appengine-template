@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """Image manipulation API.
 
 Classes defined in this module:
@@ -30,11 +33,16 @@ Classes defined in this module:
 
 
 
+
+
+
+
 import struct
 
 from google.appengine.api import apiproxy_stub_map
 from google.appengine.api.images import images_service_pb
 from google.appengine.runtime import apiproxy_errors
+
 
 
 JPEG = images_service_pb.OutputSettings.JPEG
@@ -56,7 +64,12 @@ ANCHOR_TYPES = frozenset([TOP_LEFT, TOP_CENTER, TOP_RIGHT, CENTER_LEFT,
                           CENTER_CENTER, CENTER_RIGHT, BOTTOM_LEFT,
                           BOTTOM_CENTER, BOTTOM_RIGHT])
 
+
+
 MAX_TRANSFORMS_PER_REQUEST = 10
+
+
+
 
 MAX_COMPOSITES_PER_REQUEST = 16
 
@@ -164,6 +177,7 @@ class Image(object):
     Raises:
       BadImageError if the image string is not a valid gif image.
     """
+
     size = len(self._image_data)
     if size >= 10:
       self._width, self._height = struct.unpack("<HH", self._image_data[6:10])
@@ -176,6 +190,8 @@ class Image(object):
     Raises:
       BadImageError if the image string is not a valid png image.
     """
+
+
     size = len(self._image_data)
     if size >= 24 and self._image_data[12:16] == "IHDR":
       self._width, self._height = struct.unpack(">II", self._image_data[16:24])
@@ -188,6 +204,7 @@ class Image(object):
     Raises:
       BadImageError if the image string is not a valid jpeg image.
     """
+
     size = len(self._image_data)
     offset = 2
     while offset < size:
@@ -219,6 +236,8 @@ class Image(object):
     Raises:
       BadImageError if the image string is not a valid tiff image.
     """
+
+
     size = len(self._image_data)
     if self._image_data.startswith("II"):
       endianness = "<"
@@ -272,11 +291,16 @@ class Image(object):
     Raises:
       BadImageError if the image string is not a valid bmp image.
     """
+
+
+
+
     size = len(self._image_data)
     if size >= 18:
       header_length = struct.unpack("<I", self._image_data[14:18])[0]
       if ((header_length == 40 or header_length == 108 or
            header_length == 124 or header_length == 64) and size >= 26):
+
         self._width, self._height = struct.unpack("<II",
                                                   self._image_data[18:26])
       elif header_length == 12 and size >= 22:
@@ -296,6 +320,7 @@ class Image(object):
     size = len(self._image_data)
     if size >= 8:
       self._width, self._height = struct.unpack("<BB", self._image_data[6:8])
+
       if not self._width:
         self._width = 256
       if not self._height:
@@ -357,7 +382,11 @@ class Image(object):
     if degrees % 90 != 0:
       raise BadRequestError("degrees argument must be multiple of 90.")
 
+
     degrees = degrees % 360
+
+
+
 
     self._check_transform_limits()
 
@@ -484,7 +513,7 @@ class Image(object):
     Args:
       output_encoding: A value from OUTPUT_ENCODING_TYPES.
       quality: A value between 1 and 100 to specify the quality of the
-      encoding.  This value is only used for JPEG quality control.
+        encoding.  This value is only used for JPEG quality control.
 
     Returns:
       str, image data after the transformations have been performed on it.
@@ -556,6 +585,7 @@ class Image(object):
     self._image_data = response.image().content()
     self._blob_key = None
     self._transforms = []
+
     self._width = None
     self._height = None
     return self._image_data
@@ -620,7 +650,7 @@ class Image(object):
             histogram.blue_list()]
 
 
-def resize(image_data, width=0, height=0, output_encoding=PNG):
+def resize(image_data, width=0, height=0, output_encoding=PNG, quality=None):
   """Resize a given image file maintaining the aspect ratio.
 
   If both width and height are specified, the more restricting of the two
@@ -632,6 +662,8 @@ def resize(image_data, width=0, height=0, output_encoding=PNG):
     width: int, width (in pixels) to change the image width to.
     height: int, height (in pixels) to change the image height to.
     output_encoding: a value from OUTPUT_ENCODING_TYPES.
+    quality: A value between 1 and 100 to specify the quality of the
+      encoding.  This value is only used for JPEG quality control.
 
   Raises:
     TypeError when width or height not either 'int' or 'long' types.
@@ -642,16 +674,19 @@ def resize(image_data, width=0, height=0, output_encoding=PNG):
   """
   image = Image(image_data)
   image.resize(width, height)
-  return image.execute_transforms(output_encoding=output_encoding)
+  return image.execute_transforms(output_encoding=output_encoding,
+                                  quality=quality)
 
 
-def rotate(image_data, degrees, output_encoding=PNG):
+def rotate(image_data, degrees, output_encoding=PNG, quality=None):
   """Rotate a given image a given number of degrees clockwise.
 
   Args:
     image_data: str, source image data.
     degrees: value from ROTATE_DEGREE_VALUES.
     output_encoding: a value from OUTPUT_ENCODING_TYPES.
+    quality: A value between 1 and 100 to specify the quality of the
+      encoding.  This value is only used for JPEG quality control.
 
   Raises:
     TypeError when degrees is not either 'int' or 'long' types.
@@ -661,15 +696,18 @@ def rotate(image_data, degrees, output_encoding=PNG):
   """
   image = Image(image_data)
   image.rotate(degrees)
-  return image.execute_transforms(output_encoding=output_encoding)
+  return image.execute_transforms(output_encoding=output_encoding,
+                                  quality=quality)
 
 
-def horizontal_flip(image_data, output_encoding=PNG):
+def horizontal_flip(image_data, output_encoding=PNG, quality=None):
   """Flip the image horizontally.
 
   Args:
     image_data: str, source image data.
     output_encoding: a value from OUTPUT_ENCODING_TYPES.
+    quality: A value between 1 and 100 to specify the quality of the
+      encoding.  This value is only used for JPEG quality control.
 
   Raises:
     Error when something went wrong with the call.  See Image.ExecuteTransforms
@@ -677,15 +715,18 @@ def horizontal_flip(image_data, output_encoding=PNG):
   """
   image = Image(image_data)
   image.horizontal_flip()
-  return image.execute_transforms(output_encoding=output_encoding)
+  return image.execute_transforms(output_encoding=output_encoding,
+                                  quality=quality)
 
 
-def vertical_flip(image_data, output_encoding=PNG):
+def vertical_flip(image_data, output_encoding=PNG, quality=None):
   """Flip the image vertically.
 
   Args:
     image_data: str, source image data.
     output_encoding: a value from OUTPUT_ENCODING_TYPES.
+    quality: A value between 1 and 100 to specify the quality of the
+      encoding.  This value is only used for JPEG quality control.
 
   Raises:
     Error when something went wrong with the call.  See Image.ExecuteTransforms
@@ -693,10 +734,12 @@ def vertical_flip(image_data, output_encoding=PNG):
   """
   image = Image(image_data)
   image.vertical_flip()
-  return image.execute_transforms(output_encoding=output_encoding)
+  return image.execute_transforms(output_encoding=output_encoding,
+                                  quality=quality)
 
 
-def crop(image_data, left_x, top_y, right_x, bottom_y, output_encoding=PNG):
+def crop(image_data, left_x, top_y, right_x, bottom_y, output_encoding=PNG,
+         quality=None):
   """Crop the given image.
 
   The four arguments are the scaling numbers to describe the bounding box
@@ -711,6 +754,8 @@ def crop(image_data, left_x, top_y, right_x, bottom_y, output_encoding=PNG):
     right_x: float value between 0.0 and 1.0 (inclusive).
     bottom_y: float value between 0.0 and 1.0 (inclusive).
     output_encoding: a value from OUTPUT_ENCODING_TYPES.
+    quality: A value between 1 and 100 to specify the quality of the
+      encoding.  This value is only used for JPEG quality control.
 
   Raises:
     TypeError if the args are not of type 'float'.
@@ -720,10 +765,11 @@ def crop(image_data, left_x, top_y, right_x, bottom_y, output_encoding=PNG):
   """
   image = Image(image_data)
   image.crop(left_x, top_y, right_x, bottom_y)
-  return image.execute_transforms(output_encoding=output_encoding)
+  return image.execute_transforms(output_encoding=output_encoding,
+                                  quality=quality)
 
 
-def im_feeling_lucky(image_data, output_encoding=PNG):
+def im_feeling_lucky(image_data, output_encoding=PNG, quality=None):
   """Automatically adjust image levels.
 
   This is similar to the "I'm Feeling Lucky" button in Picasa.
@@ -731,6 +777,8 @@ def im_feeling_lucky(image_data, output_encoding=PNG):
   Args:
     image_data: str, source image data.
     output_encoding: a value from OUTPUT_ENCODING_TYPES.
+    quality: A value between 1 and 100 to specify the quality of the
+      encoding.  This value is only used for JPEG quality control.
 
   Raises:
     Error when something went wrong with the call.  See Image.ExecuteTransforms
@@ -738,7 +786,8 @@ def im_feeling_lucky(image_data, output_encoding=PNG):
   """
   image = Image(image_data)
   image.im_feeling_lucky()
-  return image.execute_transforms(output_encoding=output_encoding)
+  return image.execute_transforms(output_encoding=output_encoding,
+                                  quality=quality)
 
 def composite(inputs, width, height, color=0, output_encoding=PNG, quality=None):
   """Composite one or more images onto a canvas.
@@ -760,7 +809,7 @@ def composite(inputs, width, height, color=0, output_encoding=PNG, quality=None)
     color channel is represented by one byte in order ARGB.
     output_encoding: a value from OUTPUT_ENCODING_TYPES.
     quality: A value between 1 and 100 to specify the quality of the
-    encoding.  This value is only used for JPEG quality control.
+      encoding.  This value is only used for JPEG quality control.
 
   Returns:
       str, image data of the composited image.
@@ -801,6 +850,7 @@ def composite(inputs, width, height, color=0, output_encoding=PNG, quality=None)
 
   if color > 0xffffffff or color < 0:
     raise BadRequestError("Invalid color")
+
   if color >= 0x80000000:
     color -= 0x100000000
 
@@ -899,10 +949,12 @@ def histogram(image_data):
 
 IMG_SERVING_SIZES_LIMIT = 1600
 
+
 IMG_SERVING_SIZES = [
     32, 48, 64, 72, 80, 90, 94, 104, 110, 120, 128, 144,
     150, 160, 200, 220, 288, 320, 400, 512, 576, 640, 720,
     800, 912, 1024, 1152, 1280, 1440, 1600]
+
 
 IMG_SERVING_CROP_SIZES = [32, 48, 64, 72, 80, 104, 136, 144, 150, 160]
 

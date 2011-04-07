@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """An extremely simple WSGI web application framework.
 
 This module exports three primary classes: Request, Response, and
@@ -70,7 +73,12 @@ import wsgiref.handlers
 import wsgiref.headers
 import wsgiref.util
 
+from google.appengine.api import lib_config
+
+
+
 wsgiref.handlers.BaseHandler.os_environ = {}
+
 
 RE_FIND_GROUPS = re.compile('\(.*?\)')
 _CHARSET_RE = re.compile(r';\s*charset=([^;\s]*)', re.I)
@@ -99,6 +107,10 @@ class Request(webob.Request):
   You can access parsed query and POST values with the get() method; do not
   parse the query string yourself.
   """
+
+
+
+
 
   request_body_tempfile_limit = 0
 
@@ -141,6 +153,7 @@ class Request(webob.Request):
     """
     param_value = self.get_all(argument_name)
     if allow_multiple:
+
       return param_value
     else:
       if len(param_value) > 0:
@@ -210,12 +223,25 @@ class Response(object):
   """
   def __init__(self):
     """Constructs a response with the default settings."""
+
+
     self.out = StringIO.StringIO()
     self.__wsgi_headers = []
     self.headers = wsgiref.headers.Headers(self.__wsgi_headers)
     self.headers['Content-Type'] = 'text/html; charset=utf-8'
     self.headers['Cache-Control'] = 'no-cache'
+
     self.set_status(200)
+
+  @property
+  def status(self):
+    """Returns current request status code."""
+    return self.__status[0]
+
+  @property
+  def status_message(self):
+    """Returns current request status message."""
+    return self.__status[1]
 
   def set_status(self, code, message=None):
     """Sets the HTTP status code of this response.
@@ -247,9 +273,15 @@ class Response(object):
     """
     body = self.out.getvalue()
     if isinstance(body, unicode):
+
+
       body = body.encode('utf-8')
     elif self.headers.get('Content-Type', '').endswith('; charset=utf-8'):
+
+
       try:
+
+
         body.decode('utf-8')
       except UnicodeError, e:
         logging.warning('Response written is not UTF-8: %s', e)
@@ -429,6 +461,7 @@ class RequestHandler(object):
         number of args that were passed in.
     """
 
+
     app = WSGIApplication.active_instance
     pattern_map = app._pattern_map
 
@@ -436,7 +469,11 @@ class RequestHandler(object):
     if implicit_args == True:
       implicit_args = app.current_request_args
 
+
+
     min_params = len(args)
+
+
 
     urlresolvers = None
 
@@ -445,13 +482,20 @@ class RequestHandler(object):
       if num_params_in_pattern < min_params:
         continue
 
+
       if urlresolvers is None:
         from django.core import urlresolvers
 
       try:
+
         num_implicit_args = max(0, num_params_in_pattern - len(args))
         merged_args = implicit_args[:num_implicit_args] + args
+
+
         url = urlresolvers.reverse_helper(pattern_tuple[0], *merged_args)
+
+
+
         url = url.replace('\\', '')
         url = url.replace('?', '')
         return url
@@ -461,6 +505,73 @@ class RequestHandler(object):
     logging.warning('get_url failed for Handler name: %r, Args: %r',
                     cls.__name__, args)
     raise NoUrlFoundError
+
+  @classmethod
+  def new_factory(cls, *args, **kwargs):
+    """Create new request handler factory.
+
+    Use factory method to create reusable request handlers that just
+    require a few configuration parameters to construct.  Also useful
+    for injecting shared state between multiple request handler
+    instances without relying on global variables.  For example, to
+    create a set of post handlers that will do simple text transformations
+    you can write:
+
+      class ChangeTextHandler(webapp.RequestHandler):
+
+        def __init__(self, transform):
+          self.transform = transform
+
+        def post(self):
+          response_text = self.transform(
+              self.request.request.body_file.getvalue())
+          self.response.out.write(response_text)
+
+      application = webapp.WSGIApplication(
+          [('/to_lower', ChangeTextHandler.new_factory(str.lower)),
+           ('/to_upper', ChangeTextHandler.new_factory(str.upper)),
+          ],
+          debug=True)
+
+    Text POSTed to /to_lower will be lower cased.
+    Text POSTed to /to_upper will be upper cased.
+    """
+    def new_instance():
+      return cls(*args, **kwargs)
+    new_instance.__name__ = cls.__name__ + 'Factory'
+    return new_instance
+
+
+class RedirectHandler(RequestHandler):
+  """Simple redirection handler.
+
+  Easily configure URLs to redirect to alternate targets.  For example,
+  to configure a web application so that the root URL is always redirected
+  to the /home path, do:
+
+    application = webapp.WSGIApplication(
+        [('/', webapp.RedirectHandler.new_factory('/home', permanent=True)),
+         ('/home', HomeHandler),
+        ],
+        debug=True)
+
+  Handler also useful for setting up obsolete URLs to redirect to new paths.
+  """
+
+  def __init__(self, path, permanent=False):
+    """Constructor.
+
+    Do not use directly.  Configure using new_factory method.
+
+    Args:
+      path: Path to redirect to.
+      permanent: if true, we use a 301 redirect instead of a 302 redirect.
+    """
+    self.path = path
+    self.permanent = permanent
+
+  def get(self):
+    self.redirect(self.path, permanent=self.permanent)
 
 
 class WSGIApplication(object):
@@ -486,6 +597,8 @@ class WSGIApplication(object):
     """
     self._init_url_mappings(url_mapping)
     self.__debug = debug
+
+
     WSGIApplication.active_instance = self
     self.current_request_args = ()
 
@@ -494,7 +607,9 @@ class WSGIApplication(object):
     request = self.REQUEST_CLASS(environ)
     response = self.RESPONSE_CLASS()
 
+
     WSGIApplication.active_instance = self
+
 
     handler = None
     groups = ()
@@ -502,11 +617,15 @@ class WSGIApplication(object):
       match = regexp.match(request.path)
       if match:
         handler = handler_class()
+
+
         handler.initialize(request, response)
         groups = match.groups()
         break
 
+
     self.current_request_args = groups
+
 
     if handler:
       try:
@@ -532,6 +651,7 @@ class WSGIApplication(object):
     else:
       response.set_status(404)
 
+
     response.wsgi_write(start_response)
     return ['']
 
@@ -543,9 +663,16 @@ class WSGIApplication(object):
       handler_tuples: list of (URI, RequestHandler) pairs.
     """
 
+
+
+
+
     handler_map = {}
+
     pattern_map = {}
+
     url_mapping = []
+
 
     for regexp, handler in handler_tuples:
 
@@ -555,6 +682,7 @@ class WSGIApplication(object):
         pass
       else:
         handler_map[handler_name] = handler
+
 
       if not regexp.startswith('^'):
         regexp = '^' + regexp
@@ -566,6 +694,7 @@ class WSGIApplication(object):
 
       compiled = re.compile(regexp)
       url_mapping.append((compiled, handler))
+
 
       num_groups = len(RE_FIND_GROUPS.findall(regexp))
       handler_patterns = pattern_map.setdefault(handler, [])
@@ -594,3 +723,103 @@ class WSGIApplication(object):
     except:
       logging.error('Handler does not map to any urls: %s', handler_name)
       raise
+
+
+def _django_setup():
+  """Imports and configures Django.
+
+  This can be overridden by defining a function named
+  webapp_django_setup() in the app's appengine_config.py file (see
+  lib_config docs).  Such a function should import and configure
+  Django.
+
+  You can also just configure the Django version to be used by setting
+  webapp_django_version in that file.
+
+  Finally, calling use_library('django', <version>) in that file
+  should also work, followed by code to configure Django settings:
+
+    # The first two sections of this example are taken from
+    # http://code.google.com/appengine/docs/python/tools/libraries.html#Django
+
+    import os
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+
+    from google.appengine.dist import use_library
+    use_library('django', '1.1')
+
+    # This last section is necessary to be able to switch between
+    # Django and webapp.template freely, regardless of which was
+    # imported first.
+
+    from django.conf import settings
+    settings._target = None
+
+  If your application also imports Django directly it should ensure
+  that the same code is executed before your app imports Django
+  (directly or indirectly).  Perhaps the simplest way to ensure that
+  is to include the following in your main.py (and in each alternate
+  main script):
+
+    from google.appengine.ext.webapp import template
+    import django
+
+  This will ensure that whatever Django setup code you have included
+  in appengine_config.py is executed, as a side effect of importing
+  the webapp.template module.
+  """
+  django_version = _config_handle.django_version
+
+  if django_version is not None:
+
+
+    from google.appengine.dist import use_library
+    use_library('django', str(django_version))
+  else:
+
+
+
+    from google.appengine.dist import _library
+    version, explicit = _library.installed.get('django', ('0.96', False))
+    if not explicit:
+      logging.warn('You are using the default Django version (%s). '
+                   'The default Django version will change in an '
+                   'App Engine release in the near future. '
+                   'Please call use_library() to explicitly select a '
+                   'Django version. '
+                   'For more information see %s',
+                   version,
+                   'http://code.google.com/appengine/docs/python/tools/'
+                   'libraries.html#Django')
+    try:
+
+      from django import v0_96
+    except ImportError:
+
+      pass
+
+
+  import django
+
+
+  import django.conf
+  try:
+    django.conf.settings.configure(
+      DEBUG=False,
+      TEMPLATE_DEBUG=False,
+      TEMPLATE_LOADERS=(
+        'django.template.loaders.filesystem.load_template_source',
+      ),
+    )
+  except (EnvironmentError, RuntimeError):
+
+    pass
+
+
+
+_config_handle = lib_config.register(
+    'webapp',
+    {'django_setup': _django_setup,
+     'django_version': None,
+     'add_wsgi_middleware': lambda app: app,
+     })

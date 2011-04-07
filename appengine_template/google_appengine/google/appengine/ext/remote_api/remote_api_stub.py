@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """An apiproxy stub that calls a remote handler via HTTP.
 
 This allows easy remote access to the App Engine datastore, and potentially any
@@ -31,7 +34,7 @@ import getpass
 def auth_func():
   return (raw_input('Username:'), getpass.getpass('Password:'))
 
-remote_api_stub.ConfigureRemoteDatastore('my-app', '/remote_api', auth_func)
+remote_api_stub.ConfigureRemoteApi('my-app', '/remote_api', auth_func)
 
 # Now you can access the remote datastore just as if your code was running on
 # App Engine!
@@ -52,6 +55,10 @@ A few caveats:
 - Requests and responses are still limited to 1MB each, so if you have large
   entities or try and fetch or put many of them at once, your requests may fail.
 """
+
+
+
+
 
 
 
@@ -101,7 +108,9 @@ def GetUserAgent():
 
   product_tokens.append("Google-remote_api/1.0")
 
+
   product_tokens.append(appengine_rpc.GetPlatformToken())
+
 
   python_version = ".".join(str(i) for i in sys.version_info)
   product_tokens.append("Python/%s" % python_version)
@@ -117,8 +126,17 @@ class TransactionData(object):
   """Encapsulates data about an individual transaction."""
 
   def __init__(self, thread_id):
+
+
     self.thread_id = thread_id
+
+
+
     self.preconditions = {}
+
+
+
+
     self.entities = {}
 
 
@@ -136,6 +154,8 @@ class RemoteStub(object):
         google.appengine.tools.appengine_rpc.AbstractRpcServer.
       path: The path to the handler this stub should send requests to.
     """
+
+
     self._server = server
     self._path = path
     self._test_stub_map = _test_stub_map
@@ -151,6 +171,7 @@ class RemoteStub(object):
     try:
       test_stub = self._test_stub_map and self._test_stub_map.GetStub(service)
       if test_stub:
+
         test_stub.MakeSyncCall(service, call, request, response)
       else:
         self._MakeRealSyncCall(service, call, request, response)
@@ -161,7 +182,7 @@ class RemoteStub(object):
     request_pb = remote_api_pb.Request()
     request_pb.set_service_name(service)
     request_pb.set_method(call)
-    request_pb.mutable_request().set_contents(request.Encode())
+    request_pb.set_request(request.Encode())
 
     response_pb = remote_api_pb.Response()
     encoded_request = request_pb.Encode()
@@ -173,12 +194,12 @@ class RemoteStub(object):
       raise apiproxy_errors.ApplicationError(error_pb.code(),
                                              error_pb.detail())
     elif response_pb.has_exception():
-      raise pickle.loads(response_pb.exception().contents())
+      raise pickle.loads(response_pb.exception())
     elif response_pb.has_java_exception():
       raise UnknownJavaServerError("An unknown error has occured in the "
                                    "Java remote_api handler for this call.")
     else:
-      response.ParseFromString(response_pb.response().contents())
+      response.ParseFromString(response_pb.response())
 
   def CreateRPC(self):
     return apiproxy_rpc.RPC(stub=self)
@@ -207,6 +228,9 @@ class RemoteDatastoreStub(RemoteStub):
     self.default_result_count = default_result_count
     self.__queries = {}
     self.__transactions = {}
+
+
+
 
     self.__next_local_cursor = 1
     self.__local_cursor_lock = threading.Lock()
@@ -248,6 +272,7 @@ class RemoteDatastoreStub(RemoteStub):
     else:
       self.__queries[cursor_id] = None
 
+
     query_result.mutable_cursor().set_cursor(cursor_id)
 
   def _Dynamic_Next(self, next_request, query_result):
@@ -258,6 +283,7 @@ class RemoteDatastoreStub(RemoteStub):
     query = self.__queries[cursor_id]
 
     if query is None:
+
       query_result.set_more_results(False)
       return
     else:
@@ -271,12 +297,15 @@ class RemoteDatastoreStub(RemoteStub):
   def _Dynamic_Get(self, get_request, get_response):
     txid = None
     if get_request.has_transaction():
+
       txid = get_request.transaction().handle()
       txdata = self.__transactions[txid]
       assert (txdata.thread_id ==
           thread.get_ident()), "Transactions are single-threaded."
 
+
       keys = [(k, k.Encode()) for k in get_request.key_list()]
+
 
       new_request = datastore_pb.GetRequest()
       for key, enckey in keys:
@@ -290,6 +319,7 @@ class RemoteDatastoreStub(RemoteStub):
           'datastore_v3', 'Get', new_request, get_response)
 
     if txid is not None:
+
       newkeys = new_request.key_list()
       entities = get_response.entity_list()
       for key, entity in zip(newkeys, entities):
@@ -297,6 +327,10 @@ class RemoteDatastoreStub(RemoteStub):
         if entity.has_entity():
           entity_hash = sha.new(entity.entity().Encode()).digest()
         txdata.preconditions[key.Encode()] = (key, entity_hash)
+
+
+
+
 
       new_response = datastore_pb.GetResponse()
       it = iter(get_response.entity_list())
@@ -320,6 +354,7 @@ class RemoteDatastoreStub(RemoteStub):
     if put_request.has_transaction():
       entities = put_request.entity_list()
 
+
       requires_id = lambda x: x.id() == 0 and not x.has_name()
       new_ents = [e for e in entities
                   if requires_id(e.key().path().element_list()[-1])]
@@ -337,6 +372,7 @@ class RemoteDatastoreStub(RemoteStub):
           ent.mutable_key().CopyFrom(key)
           ent.mutable_entity_group().add_element().CopyFrom(
               key.path().element(0))
+
 
       txid = put_request.transaction().handle()
       txdata = self.__transactions[txid]
@@ -398,6 +434,7 @@ class RemoteDatastoreStub(RemoteStub):
         puts.add_entity().CopyFrom(entity)
       else:
         deletes.add_key().CopyFrom(key)
+
 
     super(RemoteDatastoreStub, self).MakeSyncCall(
         'remote_datastore', 'Transaction',
@@ -514,8 +551,10 @@ def ConfigureRemoteApi(app_id,
 
   os.environ['APPLICATION_ID'] = app_id
   if default_auth_domain:
+
     os.environ['AUTH_DOMAIN'] = default_auth_domain
   elif 'AUTH_DOMAIN' not in os.environ:
+
     os.environ['AUTH_DOMAIN'] = 'gmail.com'
   apiproxy_stub_map.apiproxy = apiproxy_stub_map.APIProxyStubMap()
   if 'datastore_v3' in services:
@@ -540,6 +579,7 @@ def MaybeInvokeAuthentication():
     datastore_stub._server.Send(datastore_stub._path, payload=None)
   else:
     raise ConfigurationError('remote_api is not configured.')
+
 
 
 ConfigureRemoteDatastore = ConfigureRemoteApi

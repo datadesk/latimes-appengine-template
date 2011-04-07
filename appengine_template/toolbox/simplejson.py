@@ -1,7 +1,7 @@
 from datetime import datetime
 from django.utils import simplejson as json
 
-def dtdump(data):
+def safedumps(data):
     """
     A modified version of simplejson that handles datetimes a little better.
     """

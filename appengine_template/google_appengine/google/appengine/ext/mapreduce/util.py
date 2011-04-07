@@ -15,14 +15,32 @@
 # limitations under the License.
 #
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 """Utility functions for use with the mapreduce library."""
 
 
-__all__ = ["for_name", "is_generator_function", "get_short_name", "parse_bool"]
+__all__ = ["for_name", "is_generator_function", "get_short_name", "parse_bool",
+           "create_datastore_write_config"]
 
 
 import inspect
 import logging
+
+from google.appengine.datastore import datastore_rpc
 
 
 def for_name(fq_name, recursive=False):
@@ -49,6 +67,8 @@ def for_name(fq_name, recursive=False):
     was not found in the module.
   """
 
+
+
   fq_name = str(fq_name)
   module_name = __name__
   short_name = fq_name
@@ -61,23 +81,37 @@ def for_name(fq_name, recursive=False):
     result = __import__(module_name, None, None, [short_name])
     return result.__dict__[short_name]
   except KeyError:
+
+
+
+
+
     if recursive:
       raise
     else:
       raise ImportError("Could not find '%s' on path '%s'" % (
                         short_name, module_name))
   except ImportError, e:
+    logging.debug("Could not import %s from %s. Will try recursively.",
+                  short_name, module_name, exc_info=True)
+
+
     try:
       module = for_name(module_name, recursive=True)
       if hasattr(module, short_name):
         return getattr(module, short_name)
       else:
+
         raise KeyError()
     except KeyError:
       raise ImportError("Could not find '%s' on path '%s'" % (
                         short_name, module_name))
     except ImportError:
+
+
       pass
+
+
     raise
 
 
@@ -125,3 +159,21 @@ def parse_bool(obj):
     return obj.lower() in TRUTH_VALUE_SET
   else:
     return bool(obj)
+
+
+def create_datastore_write_config(mapreduce_spec):
+  """Creates datastore config to use in write operations.
+
+  Args:
+    mapreduce_spec: current mapreduce specification as MapreduceSpec.
+
+  Returns:
+    an instance of datastore_rpc.Configuration to use for all write
+    operations in the mapreduce.
+  """
+  force_writes = parse_bool(mapreduce_spec.params.get("force_writes", "false"))
+  if force_writes:
+    return datastore_rpc.Configuration(force_writes=force_writes)
+  else:
+
+    return datastore_rpc.Configuration()

@@ -16,6 +16,12 @@
 #
 
 
+
+
+
+
+
+
 """Contains an abstract base class for protocol messages."""
 
 
@@ -45,6 +51,7 @@ class Message(object):
   """
 
 
+
   __slots__ = []
 
   DESCRIPTOR = None
@@ -58,6 +65,7 @@ class Message(object):
     raise NotImplementedError
 
   def __ne__(self, other_msg):
+
     return not self == other_msg
 
   def __hash__(self):
@@ -119,6 +127,11 @@ class Message(object):
     raise NotImplementedError
 
 
+
+
+
+
+
   def MergeFromString(self, serialized):
     """Merges serialized protocol buffer data into this message.
 
@@ -176,6 +189,22 @@ class Message(object):
       A string representation of the partial message.
     """
     raise NotImplementedError
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   def ListFields(self):
     """Returns a list of (FieldDescriptor, value) tuples for all

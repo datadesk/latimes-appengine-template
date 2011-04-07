@@ -15,10 +15,26 @@
 # limitations under the License.
 #
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 """API for controlling MapReduce execution outside of MapReduce framework."""
 
 
 __all__ = ["start_map"]
+
 
 
 import google
@@ -28,28 +44,31 @@ from google.appengine.ext.mapreduce import model
 
 
 _DEFAULT_SHARD_COUNT = 8
+_DEFAULT_BASE_PATH = "/_ah/mapreduce"
 
 
 def start_map(name,
               handler_spec,
               reader_spec,
-              reader_parameters,
+              mapper_parameters,
               shard_count=_DEFAULT_SHARD_COUNT,
+              output_writer_spec=None,
               mapreduce_parameters=None,
-              base_path="/mapreduce",
+              base_path=_DEFAULT_BASE_PATH,
               queue_name="default",
               eta=None,
               countdown=None,
               hooks_class_name=None,
-              _app=None):
+              _app=None,
+              transactional=False):
   """Start a new, mapper-only mapreduce.
 
   Args:
     name: mapreduce name. Used only for display purposes.
     handler_spec: fully qualified name of mapper handler function/class to call.
     reader_spec: fully qualified name of mapper reader to use
-    reader_parameters: dictionary of parameters to pass to reader. These are
-      reader-specific.
+    mapper_parameters: dictionary of parameters to pass to mapper. These are
+      mapper-specific and also used for reader initialization.
     shard_count: number of shards to create.
     mapreduce_parameters: dictionary of mapreduce parameters relevant to the
       whole job.
@@ -62,12 +81,17 @@ def start_map(name,
     countdown: Time in seconds into the future that this MR should execute.
         Defaults to zero.
     hooks_class_name: fully qualified name of a hooks.Hooks subclass.
+    transactional: Specifies if job should be started as a part of already
+      opened transaction.
 
   Returns:
     mapreduce id as string.
   """
-  mapper_spec = model.MapperSpec(handler_spec, reader_spec, reader_parameters,
-                                 shard_count)
+  mapper_spec = model.MapperSpec(handler_spec,
+                                 reader_spec,
+                                 mapper_parameters,
+                                 shard_count,
+                                 output_writer_spec=output_writer_spec)
 
   return handlers.StartJobHandler._start_map(
       name,
@@ -78,5 +102,5 @@ def start_map(name,
       eta=eta,
       countdown=countdown,
       hooks_class_name=hooks_class_name,
-      _app=_app)
-
+      _app=_app,
+      transactional=transactional)

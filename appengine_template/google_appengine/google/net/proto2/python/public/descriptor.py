@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """Descriptors essentially contain exactly the information found in a .proto
 file, in types that make this information accessible in Python.
 """
@@ -54,6 +57,7 @@ class DescriptorBase(object):
     """
     self._options = options
     self._options_class_name = options_class_name
+
 
     self.has_options = options is not None
 
@@ -104,6 +108,8 @@ class _NestedDescriptorBase(DescriptorBase):
         options, options_class_name)
 
     self.name = name
+
+
     self.full_name = full_name
     self.file = file
     self.containing_type = containing_type
@@ -202,6 +208,11 @@ class Descriptor(_NestedDescriptorBase):
         containing_type, serialized_start=serialized_start,
         serialized_end=serialized_start)
 
+
+
+
+
+
     self.fields = fields
     for field in self.fields:
       field.containing_type = self
@@ -234,14 +245,26 @@ class Descriptor(_NestedDescriptorBase):
     Args:
       proto: An empty descriptor_pb2.DescriptorProto.
     """
+
     super(Descriptor, self).CopyToProto(proto)
+
+
+
+
+
+
+
+
+
+
+
 
 
 class FieldDescriptor(DescriptorBase):
 
   """Descriptor for a single field in a .proto file.
 
-  A FieldDescriptor instance has the following attriubtes:
+  A FieldDescriptor instance has the following attributes:
 
     name: (str) Name of this field, exactly as it appears in .proto.
     full_name: (str) Name of this field, including containing scope.  This is
@@ -284,6 +307,10 @@ class FieldDescriptor(DescriptorBase):
       None to use default field options.
   """
 
+
+
+
+
   TYPE_DOUBLE         = 1
   TYPE_FLOAT          = 2
   TYPE_INT64          = 3
@@ -304,6 +331,10 @@ class FieldDescriptor(DescriptorBase):
   TYPE_SINT64         = 18
   MAX_TYPE            = 18
 
+
+
+
+
   CPPTYPE_INT32       = 1
   CPPTYPE_INT64       = 2
   CPPTYPE_UINT32      = 3
@@ -315,6 +346,10 @@ class FieldDescriptor(DescriptorBase):
   CPPTYPE_STRING      = 9
   CPPTYPE_MESSAGE     = 10
   MAX_CPPTYPE         = 10
+
+
+
+
 
   LABEL_OPTIONAL      = 1
   LABEL_REQUIRED      = 2
@@ -409,6 +444,7 @@ class EnumDescriptor(_NestedDescriptorBase):
     Args:
       proto: An empty descriptor_pb2.EnumDescriptorProto.
     """
+
     super(EnumDescriptor, self).CopyToProto(proto)
 
 
@@ -459,6 +495,7 @@ class ServiceDescriptor(_NestedDescriptorBase):
         serialized_end=serialized_end)
     self.index = index
     self.methods = methods
+
     for method in self.methods:
       method.containing_service = self
 
@@ -475,6 +512,7 @@ class ServiceDescriptor(_NestedDescriptorBase):
     Args:
       proto: An empty descriptor_pb2.ServiceDescriptorProto.
     """
+
     super(ServiceDescriptor, self).CopyToProto(proto)
 
 

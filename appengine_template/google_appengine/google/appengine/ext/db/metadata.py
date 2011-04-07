@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+
+
+
 """Models to be used to access an app's datastore metadata.
 
 These entities cannot be created by users, but are created as results of
@@ -36,12 +39,17 @@ and
 
 
 
+
+
+
+
 from google.appengine.api import datastore_types
 from google.appengine.ext import db
 
 
 class BaseMetadata(db.Model):
   """Base class for all metadata models."""
+
 
   KIND_NAME = '__BaseMetadata__'
 

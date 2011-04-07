@@ -15,11 +15,18 @@
 # limitations under the License.
 #
 
+
+
+
 """AppInfo tools.
 
 Library for working with AppInfo records in memory, store and load from
 configuration files.
 """
+
+
+
+
 
 
 
@@ -34,15 +41,22 @@ from google.appengine.api import yaml_builder
 from google.appengine.api import yaml_listener
 from google.appengine.api import yaml_object
 
+
 _URL_REGEX = r'(?!\^)/|\.|(\(.).*(?!\$).'
 _FILES_REGEX = r'(?!\^).*(?!\$).'
+
 
 _DELTA_REGEX = r'([0-9]+)([DdHhMm]|[sS]?)'
 _EXPIRATION_REGEX = r'\s*(%s)(\s+%s)*\s*' % (_DELTA_REGEX, _DELTA_REGEX)
 
+
+
+
 _SERVICE_RE_STRING = r'(mail|xmpp_message|xmpp_subscribe|xmpp_presence|rest|warmup)'
 
+
 _PAGE_NAME_REGEX = r'^.+$'
+
 
 
 _EXPIRATION_CONVERSIONS = {
@@ -52,13 +66,19 @@ _EXPIRATION_CONVERSIONS = {
     's': 1,
 }
 
+
+
 APP_ID_MAX_LEN = 100
 MAJOR_VERSION_ID_MAX_LEN = 100
 MAX_URL_MAPS = 100
 
+
 PARTITION_SEPARATOR = '~'
 
+
 DOMAIN_SEPARATOR = ':'
+
+
 
 PARTITION_RE_STRING = (r'[a-z\d\-]{1,%d}\%s' %
                        (APP_ID_MAX_LEN, PARTITION_SEPARATOR))
@@ -90,6 +110,7 @@ AUTH_FAIL_ACTION_UNAUTHORIZED = 'unauthorized'
 SECURE_HTTP = 'never'
 SECURE_HTTPS = 'always'
 SECURE_HTTP_OR_HTTPS = 'optional'
+
 SECURE_DEFAULT = 'default'
 
 REQUIRE_MATCHING_FILE = 'require_matching_file'
@@ -101,6 +122,7 @@ DEFAULT_SKIP_FILES = (r'^(.*/)?('
                       r'(.*/RCS/.*)|'
                       r'(\..*)|'
                       r')$')
+
 
 LOGIN = 'login'
 AUTH_FAIL_ACTION = 'auth_fail_action'
@@ -115,6 +137,7 @@ STATIC_DIR = 'static_dir'
 MIME_TYPE = 'mime_type'
 SCRIPT = 'script'
 EXPIRATION = 'expiration'
+
 
 APPLICATION = 'application'
 VERSION = 'version'
@@ -131,13 +154,18 @@ JAVA_PRECOMPILED = 'java_precompiled'
 PYTHON_PRECOMPILED = 'python_precompiled'
 ADMIN_CONSOLE = 'admin_console'
 ERROR_HANDLERS = 'error_handlers'
+SERVERS = 'servers'
+THREADSAFE = 'threadsafe'
+
 
 PAGES = 'pages'
 NAME = 'name'
 
+
 ERROR_CODE = 'error_code'
 FILE = 'file'
 _ERROR_CODE_REGEX = r'(default|over_quota|dos_api_denial|timeout)'
+
 
 ON = 'on'
 ON_ALIASES = ['yes', 'y', 'True', 't', '1', 'true']
@@ -260,6 +288,8 @@ class URLMap(validation.Validated):
 
   COMMON_FIELDS = set([URL, LOGIN, AUTH_FAIL_ACTION, SECURE])
 
+
+
   ALLOWED_FIELDS = {
       HANDLER_STATIC_FILES: (MIME_TYPE, UPLOAD, EXPIRATION,
                              REQUIRE_MATCHING_FILE),
@@ -292,14 +322,19 @@ class URLMap(validation.Validated):
       required attribute for its handler type.
     """
     for id_field in URLMap.ALLOWED_FIELDS.iterkeys():
+
       if getattr(self, id_field) is not None:
+
         mapping_type = id_field
         break
     else:
+
       raise appinfo_errors.UnknownHandlerType(
           'Unknown url handler type.\n%s' % str(self))
 
     allowed_fields = URLMap.ALLOWED_FIELDS[mapping_type]
+
+
 
     for attribute in self.ATTRIBUTES.iterkeys():
       if (getattr(self, attribute) is not None and
@@ -309,6 +344,9 @@ class URLMap(validation.Validated):
         raise appinfo_errors.UnexpectedHandlerAttribute(
             'Unexpected attribute "%s" for mapping type %s.' %
             (attribute, mapping_type))
+
+
+
 
     if mapping_type == HANDLER_STATIC_FILES and not self.upload:
       raise appinfo_errors.MissingHandlerAttribute(
@@ -387,6 +425,13 @@ class AdminConsole(validation.Validated):
   def Merge(cls, adminconsole_one, adminconsole_two):
     """Return the result of merging two AdminConsole objects."""
 
+
+
+
+
+
+
+
     if not adminconsole_one or not adminconsole_two:
       return adminconsole_one or adminconsole_two
 
@@ -415,6 +460,42 @@ class BuiltinHandler(validation.Validated):
   Permits arbitrary keys but their values must be described by the
   validation.Options object returned by ATTRIBUTES.
   """
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
   class DynamicAttributes(dict):
@@ -460,6 +541,10 @@ class BuiltinHandler(validation.Validated):
       self.builtin_name = key
       super(BuiltinHandler, self).__setattr__(key, value)
     else:
+
+
+
+
       raise appinfo_errors.MultipleBuiltinsSpecified(
           'More than one builtin defined in list element.  Each new builtin '
           'should be prefixed by "-".')
@@ -538,8 +623,12 @@ class AppInclude(validation.Validated):
     """This function merges an app.yaml file with referenced builtins/includes.
     """
 
+
+
+
     if not appinclude:
       return appyaml
+
 
     if appinclude.handlers:
       tail = appyaml.handlers or []
@@ -552,6 +641,7 @@ class AppInclude(validation.Validated):
           tail.append(h)
 
       appyaml.handlers.extend(tail)
+
 
     appyaml.admin_console = AdminConsole.Merge(appyaml.admin_console,
                                                appinclude.admin_console)
@@ -574,14 +664,18 @@ class AppInclude(validation.Validated):
       appinclude_one and appinclude_two.
     """
 
+
+
     if not appinclude_one or not appinclude_two:
       return appinclude_one or appinclude_two
+
 
     if appinclude_one.handlers:
       if appinclude_two.handlers:
         appinclude_one.handlers.extend(appinclude_two.handlers)
     else:
       appinclude_one.handlers = appinclude_two.handlers
+
 
     appinclude_one.admin_console = (
         AdminConsole.Merge(appinclude_one.admin_console,
@@ -633,6 +727,7 @@ class AppInfoExternal(validation.Validated):
           validation.Options(JAVA_PRECOMPILED, PYTHON_PRECOMPILED))),
       ADMIN_CONSOLE: validation.Optional(AdminConsole),
       ERROR_HANDLERS: validation.Optional(validation.Repeated(ErrorHandlers)),
+      THREADSAFE: validation.Optional(bool),
   }
 
   def CheckInitialized(self):
@@ -756,11 +851,18 @@ def ParseExpiration(expiration):
 
 
 
+
+
+
 _file_path_positive_re = re.compile(r'^[ 0-9a-zA-Z\._\+/\$-]{1,256}$')
+
 
 _file_path_negative_1_re = re.compile(r'\.\.|^\./|\.$|/\./|^-|^_ah/')
 
+
 _file_path_negative_2_re = re.compile(r'//|/$')
+
+
 
 _file_path_negative_3_re = re.compile(r'^ | $|/ | /')
 

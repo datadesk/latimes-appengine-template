@@ -14,6 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 """Imports data over HTTP.
 
 Usage:
@@ -88,6 +102,11 @@ Example:
 
 
 
+
+
+
+
+
 import csv
 import errno
 import getopt
@@ -126,6 +145,10 @@ from google.appengine.tools import adaptive_thread_pool
 from google.appengine.tools import appengine_rpc
 from google.appengine.tools.requeue import ReQueue
 
+
+
+
+
 try:
   import sqlite3
 except ImportError:
@@ -135,37 +158,64 @@ logger = logging.getLogger('google.appengine.tools.bulkloader')
 
 KeyRange = key_range_module.KeyRange
 
+
 DEFAULT_THREAD_COUNT = 10
+
 
 DEFAULT_BATCH_SIZE = 10
 
+
 DEFAULT_DOWNLOAD_BATCH_SIZE = 100
+
 
 DEFAULT_QUEUE_SIZE = DEFAULT_THREAD_COUNT * 10
 
+
 _THREAD_SHOULD_EXIT = '_THREAD_SHOULD_EXIT'
+
 
 STATE_READ = 0
 STATE_SENDING = 1
 STATE_SENT = 2
 STATE_NOT_SENT = 3
 
+
+
 STATE_GETTING = 1
 STATE_GOT = 2
 STATE_ERROR = 3
 
+
+
 DATA_CONSUMED_TO_HERE = 'DATA_CONSUMED_TO_HERE'
 
+
+
+
 INITIAL_BACKOFF = 1.0
+
 
 BACKOFF_FACTOR = 2.0
 
 
+
+
+
+
 DEFAULT_BANDWIDTH_LIMIT = 250000
+
 
 DEFAULT_RPS_LIMIT = 20
 
+
 DEFAULT_REQUEST_LIMIT = 8
+
+
+
+
+
+
+
 
 MAXIMUM_INCREASE_DURATION = 5.0
 MAXIMUM_HOLD_DURATION = 12.0
@@ -404,6 +454,9 @@ class UploadWorkItemGenerator(object):
       ResumeError: if there are an inconsistent number of columns.
     """
     assert self.line_number == key_start
+
+
+
     self.read_rows = []
     while self.line_number <= key_end:
       row = self.reader.next()
@@ -443,10 +496,14 @@ class UploadWorkItemGenerator(object):
         number of rows.
     """
     if self.skip_first:
+
+
       logger.info('Skipping header line.')
       try:
         self.reader.next()
       except StopIteration:
+
+
         return
 
     exhausted = False
@@ -458,6 +515,8 @@ class UploadWorkItemGenerator(object):
                 self.batch_size)
 
     state = None
+
+
     if self.progress_generator:
       for progress_key, kind, state, key_start, key_end in (
           self.progress_generator):
@@ -470,6 +529,8 @@ class UploadWorkItemGenerator(object):
                                  self.read_rows,
                                  progress_key=progress_key)
           except StopIteration:
+
+
             logger.error('Mismatch between data file and progress database')
             raise ResumeError(
                 'Mismatch between data file and progress database')
@@ -477,9 +538,13 @@ class UploadWorkItemGenerator(object):
           try:
             self._AdvanceTo(key_end + 1)
           except StopIteration:
+
+
             state = None
 
     if self.progress_generator is None or state == DATA_CONSUMED_TO_HERE:
+
+
       while not exhausted:
         key_start = self.line_number
         key_end = self.line_number + self.batch_size - 1
@@ -487,6 +552,8 @@ class UploadWorkItemGenerator(object):
           self._ReadRows(key_start, key_end)
         except StopIteration:
           exhausted = True
+
+
           key_end = self.line_number - 1
         if key_start <= key_end:
           yield self._MakeItem(key_start, key_end, self.read_rows)
@@ -523,6 +590,7 @@ class CSVGenerator(object):
     csv_file = self.openfile(self.csv_filename, 'rb')
     reader = self.create_csv_reader(csv_file, skipinitialspace=True)
     try:
+
       for record in reader:
         yield record
     except csv.Error, e:
@@ -587,6 +655,7 @@ class KeyRangeItemGenerator(object):
                                                state=STATE_READ)
           yield result
     else:
+
       for kind in self.kinds:
         key_range = KeyRange()
         yield self.key_range_item_factory(self.request_manager,
@@ -684,8 +753,11 @@ class _WorkItem(adaptive_thread_pool.WorkItem):
     status = adaptive_thread_pool.WorkItem.FAILURE
     instruction = adaptive_thread_pool.ThreadGate.DECREASE
 
+
     try:
       self.MarkAsTransferring()
+
+
 
       try:
         transfer_time = self._TransferItem(thread_pool)
@@ -708,11 +780,13 @@ class _WorkItem(adaptive_thread_pool.WorkItem):
               apiproxy_errors.OverQuotaError,
               apiproxy_errors.DeadlineExceededError,
               apiproxy_errors.ApplicationError), e:
+
         status = adaptive_thread_pool.WorkItem.RETRY
         logger.exception('Retrying on non-fatal datastore error: %s', e)
       except urllib2.HTTPError, e:
         http_status = e.code
         if http_status >= 500 and http_status < 600:
+
           status = adaptive_thread_pool.WorkItem.RETRY
           logger.exception('Retrying on non-fatal HTTP error: %d %s',
                            http_status, e.msg)
@@ -777,16 +851,27 @@ class _WorkItem(adaptive_thread_pool.WorkItem):
       blocking: Whether to block for the progress thread to acknowledge the
         transition.
     """
+
     assert not self.progress_event.isSet()
 
+
     self.state = new_state
+
 
     self.progress_queue.put(self)
 
     if blocking:
+
+
+
       self.progress_event.wait()
 
+
       self.progress_event.clear()
+
+
+
+
 
 
 
@@ -821,6 +906,7 @@ class UploadWorkItem(_WorkItem):
     _WorkItem.__init__(self, progress_queue, key_start, key_end,
                        ImportStateName, state=STATE_READ,
                        progress_key=progress_key)
+
 
     assert isinstance(key_start, (int, long))
     assert isinstance(key_end, (int, long))
@@ -960,6 +1046,8 @@ class KeyRangeItem(_WorkItem):
 
   def MarkAsTransferred(self):
     """Mark this KeyRangeItem as transferred, updating the progress database."""
+
+
     pass
 
   def Process(self, download_result, thread_pool, batch_size,
@@ -1024,6 +1112,7 @@ class KeyRangeItem(_WorkItem):
 
   def _SplitAndAddRanges(self, thread_pool, batch_size):
     """Split the key range [key_start, key_end] into a list of ranges."""
+
     if self.download_result.direction == key_range_module.KeyRange.ASC:
       key_range = KeyRange(
           key_start=self.download_result.key_end,
@@ -1036,8 +1125,10 @@ class KeyRangeItem(_WorkItem):
           include_end=False)
 
     if thread_pool.QueuedItemCount() > 2 * thread_pool.num_threads():
+
       ranges = [key_range]
     else:
+
       ranges = key_range.split_range(batch_size=batch_size)
 
     for key_range in ranges:
@@ -1174,6 +1265,7 @@ class RequestManager(object):
         servername=host_port,
         rpc_server_factory=throttled_rpc_server_factory,
         secure=self.secure)
+
     remote_api_throttle.ThrottleRemoteDatastore(self.throttle)
     logger.debug('Bulkloader using app_id: %s', os.environ['APPLICATION_ID'])
 
@@ -1281,6 +1373,7 @@ class RequestManager(object):
           return entity
 
       if not entity:
+
         continue
       if isinstance(entity, list):
         entities.extend(map(ToEntity, entity))
@@ -1306,15 +1399,18 @@ class RequestManager(object):
       result_pb = datastore_pb.QueryResult()
       apiproxy_stub_map.MakeSyncCall('datastore_v3', 'RunQuery', query_pb,
                                      result_pb)
-      if result_pb.result_size() == 0 and result_pb.more_results():
+      results = result_pb.result_list()
+
+      while result_pb.more_results():
         next_pb = datastore_pb.NextRequest()
-        next_pb.set_count(self.batch_size)
+        next_pb.set_count(self.batch_size - len(results))
         next_pb.mutable_cursor().CopyFrom(result_pb.cursor())
         result_pb = datastore_pb.QueryResult()
         apiproxy_stub_map.MakeSyncCall('datastore_v3', 'Next', next_pb,
                                        result_pb)
+        results += result_pb.result_list()
 
-      return result_pb.result_list()
+      return results
     except apiproxy_errors.ApplicationError, e:
       raise datastore._ToDatastoreError(e)
 
@@ -1347,11 +1443,14 @@ class RequestManager(object):
       try:
         results = self._QueryForPbs(query)
       except datastore_errors.NeedIndexError:
+
         logger.info('%s: No descending index on __key__, '
                     'performing serial download', kind)
         self.parallel_download = False
 
     if not self.parallel_download:
+
+
       key_range_item.key_range.direction = key_range_module.KeyRange.ASC
       query = key_range_item.key_range.make_ascending_datastore_query(
           kind, keys_only=keys_only)
@@ -1360,6 +1459,8 @@ class RequestManager(object):
     size = len(results)
 
     for entity in results:
+
+
       key = key_factory()
       key._Key__reference = entity.key()
       entities.append(entity)
@@ -1433,6 +1534,9 @@ class _ThreadBase(threading.Thread):
 
   def __init__(self):
     threading.Thread.__init__(self)
+
+
+
 
     self.setDaemon(True)
 
@@ -1543,10 +1647,13 @@ class DataSourceThread(_ThreadBase):
     self.progress_queue = progress_queue
     self.workitem_generator_factory = workitem_generator_factory
     self.progress_generator_factory = progress_generator_factory
+
     self.entity_count = 0
 
   def PerformWork(self):
     """Performs the work of a DataSourceThread."""
+
+
     if self.progress_generator_factory:
       progress_gen = self.progress_generator_factory()
     else:
@@ -1562,15 +1669,25 @@ class DataSourceThread(_ThreadBase):
     self.read_all = False
 
     for item in content_gen.Batches():
+
+
+
+
+
       item.MarkAsRead()
+
+
+
 
       while not self.exit_flag:
         try:
+
           self.thread_pool.SubmitItem(item, block=True, timeout=1.0)
           self.entity_count += item.count
           break
         except Queue.Full:
           pass
+
 
       if self.exit_flag:
         break
@@ -1579,6 +1696,7 @@ class DataSourceThread(_ThreadBase):
       self.read_all = True
     self.read_count = content_gen.row_count
     self.xfer_count = content_gen.xfer_count
+
 
 
 
@@ -1613,11 +1731,16 @@ class _Database(object):
       index: An optional string to create an index for the database.
       commit_periodicity: Number of operations between database commits.
     """
+
+
     self.db_filename = db_filename
+
+
 
     logger.info('Opening database: %s', db_filename)
     self.primary_conn = sqlite3.connect(db_filename, isolation_level=None)
     self.primary_thread = threading.currentThread()
+
 
     self.secondary_conn = None
     self.secondary_thread = None
@@ -1625,9 +1748,12 @@ class _Database(object):
     self.operation_count = 0
     self.commit_periodicity = commit_periodicity
 
+
+
     try:
       self.primary_conn.execute(create_table)
     except sqlite3.OperationalError, e:
+
       if 'already exists' not in e.message:
         raise
 
@@ -1635,6 +1761,7 @@ class _Database(object):
       try:
         self.primary_conn.execute(index)
       except sqlite3.OperationalError, e:
+
         if 'already exists' not in e.message:
           raise
 
@@ -1708,10 +1835,18 @@ class _Database(object):
 
     self.secondary_thread = threading.currentThread()
 
+
+
+
+
+
+
     self.secondary_conn = sqlite3.connect(self.db_filename)
+
 
     self.insert_cursor = self.secondary_conn.cursor()
     self.update_cursor = self.secondary_conn.cursor()
+
 
 
 zero_matcher = re.compile(r'\x00')
@@ -1747,8 +1882,11 @@ def KeyStr(key):
   out_path = []
   for part in path:
     if isinstance(part, (int, long)):
+
+
       part = '%020d' % part
     else:
+
       part = ':%s' % part
 
     out_path.append(zero_matcher.sub(u'\0\1', part))
@@ -1770,6 +1908,7 @@ def StrKey(key_str):
   parts = key_str.split(u'\0\0')
   for i in xrange(len(parts)):
     if parts[i][0] == ':':
+
       part = parts[i][1:]
       part = zero_one_matcher.sub(u'\0', part)
       parts[i] = part
@@ -1886,8 +2025,12 @@ class ResultDatabase(_Database):
 
   def AllEntities(self):
     """Yields all pairs of (id, value) from the result table."""
+
     conn = sqlite3.connect(self.db_filename, isolation_level=None)
     cursor = conn.cursor()
+
+
+
 
     cursor.execute(
         'select id, value from result order by sort_key, id')
@@ -1922,6 +2065,11 @@ class _ProgressDatabase(_Database):
       commit_periodicity: How many operations to perform between commits.
     """
     self.prior_key_end = None
+
+
+
+
+
 
     create_table = ('create table progress (\n'
                     'id integer primary key autoincrement,\n'
@@ -1958,11 +2106,14 @@ class _ProgressDatabase(_Database):
     """
     assert _RunningInThread(self.primary_thread)
 
+
+
     cursor = self.primary_conn.cursor()
     cursor.execute('select count(*) from progress')
     row = cursor.fetchone()
     if row is None:
       raise ResumeError('Cannot retrieve progress information from database.')
+
 
     return row[0] != 0
 
@@ -2077,8 +2228,13 @@ class _ProgressDatabase(_Database):
     Yields:
       Four-tuples of (progress_key, state, key_start, key_end)
     """
+
+
+
     conn = sqlite3.connect(self.db_filename, isolation_level=None)
     cursor = conn.cursor()
+
+
 
     cursor.execute('select max(key_end) from progress')
 
@@ -2091,11 +2247,15 @@ class _ProgressDatabase(_Database):
 
     self.prior_key_end = key_end
 
+
+
     cursor.execute(
         'select id, state, kind, key_start, key_end from progress'
         '  where state != ?'
         '  order by id',
         (STATE_SENT,))
+
+
 
     rows = cursor.fetchall()
 
@@ -2105,6 +2265,7 @@ class _ProgressDatabase(_Database):
       progress_key, kind, state, key_start, key_end = row
 
       yield progress_key, kind, state, key_start, key_end
+
 
     yield None, DATA_CONSUMED_TO_HERE, None, None, key_end
 
@@ -2132,6 +2293,10 @@ class ExportProgressDatabase(_ProgressDatabase):
     Returns:
       True: if the database contains progress data.
     """
+
+
+
+
     return self.existing_table
 
 
@@ -2206,23 +2371,31 @@ class _ProgressThreadBase(_ThreadBase):
       try:
         item = self.progress_queue.get(block=True, timeout=1.0)
       except Queue.Empty:
+
         continue
       if item == _THREAD_SHOULD_EXIT:
         break
 
       if item.state == STATE_READ and item.progress_key is None:
+
+
         item.progress_key = self.db.StoreKeys(item.kind,
                                               item.key_start,
                                               item.key_end)
       else:
+
+
+
         assert item.progress_key is not None
         self.UpdateProgress(item)
+
 
       item.progress_event.set()
 
       self.progress_queue.task_done()
 
     self.db.ThreadComplete()
+
 
 
 
@@ -2303,6 +2476,7 @@ class ExportProgressThread(_ProgressThreadBase):
     if item.state == STATE_GOT:
       count = self.result_db.StoreEntities(item.download_result.keys,
                                            item.download_result.entities)
+
       self.db.DeleteKey(item.progress_key)
       self.entities_transferred += count
     else:
@@ -2341,6 +2515,7 @@ class MapperProgressThread(_ProgressThreadBase):
     """
     if item.state == STATE_GOT:
       self.entities_transferred += item.count
+
       self.db.DeleteKey(item.progress_key)
     else:
       self.db.UpdateState(item.progress_key, item.state)
@@ -2446,6 +2621,7 @@ class Loader(object):
     self.__openfile = open
     self.__create_csv_reader = csv.reader
 
+
     GetImplementationClass(kind)
 
     Validate(properties, list)
@@ -2481,14 +2657,20 @@ class Loader(object):
         ('GenerateKey', 'generate_key'),
         )
     for old_name, new_name in aliases:
+
+
       setattr(Loader, old_name, getattr(Loader, new_name))
+
+
       if hasattr(self.__class__, old_name) and not (
           getattr(self.__class__, old_name).im_func ==
           getattr(Loader, new_name).im_func):
         if hasattr(self.__class__, new_name) and not (
             getattr(self.__class__, new_name).im_func ==
             getattr(Loader, new_name).im_func):
+
           raise NameClashError(old_name, new_name, self.__class__)
+
         setattr(self, new_name, getattr(self, old_name))
 
   def create_entity(self, values, key_name=None, parent=None):
@@ -2628,6 +2810,7 @@ class Loader(object):
   @staticmethod
   def RegisteredLoaders():
     """Returns a dict of the Loader instances that have been created."""
+
     return dict(Loader.__loaders)
 
   @staticmethod
@@ -2662,6 +2845,11 @@ class RestoreLoader(Loader):
     self.kind = kind
     self.app_id = app_id
 
+
+
+
+    self.namespace = namespace_manager.get_namespace()
+
   def initialize(self, filename, loader_opts):
     CheckFile(filename)
     self.queue = Queue.Queue(1000)
@@ -2687,6 +2875,7 @@ class RestoreLoader(Loader):
     for values in record_generator:
       entity = self.create_entity(values)
       key = entity.key()
+
       if not key.id():
         continue
       kind = key.kind()
@@ -2712,27 +2901,46 @@ class RestoreLoader(Loader):
   def create_entity(self, values, key_name=None, parent=None):
     return values
 
-  def rewrite_reference_proto(self, reference_proto):
+  def rewrite_reference_proto(self, entity_namespace, reference_proto):
     """Transform the Reference protobuffer which underlies keys and references.
 
     Args:
+      entity_namespace: The 'before' namespace of the entity that has this
+        reference property.  If this value does not match the reference
+        properties current namespace, then the reference property namespace will
+        not be modified.
       reference_proto: A Onestore Reference proto
     """
     reference_proto.set_app(self.app_id)
+    if entity_namespace != reference_proto.name_space():
+      return
+
+    if self.namespace:
+      reference_proto.set_name_space(self.namespace)
+    else:
+      reference_proto.clear_name_space()
 
   def _translate_entity_proto(self, entity_proto):
     """Transform the ReferenceProperties of the given entity to fix app_id."""
     entity_key = entity_proto.mutable_key()
     entity_key.set_app(self.app_id)
+    original_entity_namespace = entity_key.name_space()
+    if self.namespace:
+      entity_key.set_name_space(self.namespace)
+    else:
+      entity_key.clear_name_space()
+
     for prop in entity_proto.property_list():
       prop_value = prop.mutable_value()
       if prop_value.has_referencevalue():
-        self.rewrite_reference_proto(prop_value.mutable_referencevalue())
+        self.rewrite_reference_proto(original_entity_namespace,
+                                     prop_value.mutable_referencevalue())
 
     for prop in entity_proto.raw_property_list():
       prop_value = prop.mutable_value()
       if prop_value.has_referencevalue():
-        self.rewrite_reference_proto(prop_value.mutable_referencevalue())
+        self.rewrite_reference_proto(original_entity_namespace,
+                                     prop_value.mutable_referencevalue())
 
     return entity_proto
 
@@ -2785,6 +2993,7 @@ class Exporter(object):
     """
     Validate(kind, basestring)
     self.kind = kind
+
 
     GetImplementationClass(kind)
 
@@ -2910,6 +3119,7 @@ class Exporter(object):
   @staticmethod
   def RegisteredExporters():
     """Returns a dictionary of the exporter instances that have been created."""
+
     return dict(Exporter.__exporters)
 
   @staticmethod
@@ -2926,6 +3136,7 @@ class DumpExporter(Exporter):
     self.result_db_filename = result_db_filename
 
   def output_entities(self, entity_generator):
+
     shutil.copyfile(self.result_db_filename, self.output_filename)
 
 
@@ -2957,6 +3168,7 @@ class Mapper(object):
     """
     Validate(kind, basestring)
     self.kind = kind
+
 
     GetImplementationClass(kind)
 
@@ -3001,6 +3213,7 @@ class Mapper(object):
   @staticmethod
   def RegisteredMappers():
     """Returns a dictionary of the mapper instances that have been created."""
+
     return dict(Mapper.__mappers)
 
   @staticmethod
@@ -3074,12 +3287,22 @@ def ShutdownThreads(data_source_thread, thread_pool):
   """
   logger.info('An error occurred. Shutting down...')
 
+
   data_source_thread.exit_flag = True
 
   thread_pool.Shutdown()
 
+
+
+
+
+
   data_source_thread.join(timeout=3.0)
   if data_source_thread.isAlive():
+
+
+
+
     logger.warn('%s hung while trying to exit',
                 data_source_thread.GetFriendlyName())
 
@@ -3172,15 +3395,21 @@ class BulkTransporterApp(object):
                                                         self.passin,
                                                         self.dry_run)
     try:
+
+
       self.request_manager.Authenticate()
     except Exception, e:
       self.error = True
+
+
       if not isinstance(e, urllib2.HTTPError) or (
           e.code != 302 and e.code != 401):
         logger.exception('Exception during authentication')
       raise AuthenticationError()
     if (self.request_manager.auth_called and
         not self.request_manager.authenticated):
+
+
       self.error = True
       raise AuthenticationError('Authentication failed')
 
@@ -3206,7 +3435,10 @@ class BulkTransporterApp(object):
                                       self.input_generator_factory,
                                       progress_generator_factory))
 
+
+
     self.throttle.Register(self.data_source_thread)
+
 
     thread_local = threading.local()
     thread_local.shut_down = False
@@ -3218,14 +3450,24 @@ class BulkTransporterApp(object):
 
     signal.signal(signal.SIGINT, Interrupt)
 
+
     self.progress_thread.start()
     self.data_source_thread.start()
 
 
+
     while not thread_local.shut_down:
+
+
+
+
+
       self.data_source_thread.join(timeout=0.25)
 
+
       if self.data_source_thread.isAlive():
+
+
         for thread in list(thread_pool.Threads()) + [self.progress_thread]:
           if not thread.isAlive():
             logger.info('Unexpected thread death: %s', thread.getName())
@@ -3233,10 +3475,12 @@ class BulkTransporterApp(object):
             self.error = True
             break
       else:
+
         break
 
     def _Join(ob, msg):
       logger.debug('Waiting for %s...', msg)
+
       if isinstance(ob, threading.Thread):
         ob.join(timeout=3.0)
         if ob.isAlive():
@@ -3250,15 +3494,22 @@ class BulkTransporterApp(object):
         ob.join()
         logger.debug('... done.')
 
+
     if self.data_source_thread.error or thread_local.shut_down:
       ShutdownThreads(self.data_source_thread, thread_pool)
     else:
+
       _Join(thread_pool.requeue, 'worker threads to finish')
 
     thread_pool.Shutdown()
+
     thread_pool.JoinThreads()
     thread_pool.CheckErrors()
     print ''
+
+
+
+
 
     if self.progress_thread.isAlive():
       InterruptibleQueueJoin(progress_queue, thread_local, thread_pool,
@@ -3266,11 +3517,14 @@ class BulkTransporterApp(object):
     else:
       logger.warn('Progress thread exited prematurely')
 
+
+
     progress_queue.put(_THREAD_SHOULD_EXIT)
     _Join(self.progress_thread, 'progress_thread to terminate')
     self.progress_thread.CheckError()
     if not thread_local.shut_down:
       self.progress_thread.WorkFinished()
+
 
     self.data_source_thread.CheckError()
 
@@ -3395,6 +3649,7 @@ def PrintUsageExit(code):
 
 REQUIRED_OPTION = object()
 
+
 BOOL_ARGS = ('create_config', 'debug', 'download', 'dry_run', 'dump',
              'has_header', 'map', 'passin', 'restore')
 INT_ARGS = ('bandwidth_limit', 'batch_size', 'http_limit', 'num_threads',
@@ -3466,6 +3721,7 @@ def ParseArguments(argv, die_fn=lambda: PrintUsageExit(1)):
     if option in ('-h', '--help'):
       PrintUsageExit(0)
     if not option.startswith('--'):
+
       continue
     option = option[2:]
     if option in DEPRECATED_OPTIONS:
@@ -3546,11 +3802,17 @@ def LoadConfig(config_file_name, exit_fn=sys.exit):
   """
   if config_file_name:
     config_file = open(config_file_name, 'r')
+
     try:
+
+
+
       bulkloader_config = imp.load_module(
           'bulkloader_config', config_file, config_file_name,
           ('', 'r', imp.PY_SOURCE))
       sys.modules['bulkloader_config'] = bulkloader_config
+
+
 
       if hasattr(bulkloader_config, 'loaders'):
         for cls in bulkloader_config.loaders:
@@ -3565,6 +3827,8 @@ def LoadConfig(config_file_name, exit_fn=sys.exit):
           Mapper.RegisterMapper(cls())
 
     except NameError, e:
+
+
       m = re.search(r"[^']*'([^']*)'.*", str(e))
       if m.groups() and m.group(1) == 'Loader':
         print >>sys.stderr, """
@@ -3591,6 +3855,9 @@ to have access to.
       else:
         raise
     except Exception, e:
+
+
+
       if isinstance(e, NameClashError) or 'bulkloader_config' in vars() and (
           hasattr(bulkloader_config, 'bulkloader') and
           isinstance(e, bulkloader_config.bulkloader.NameClashError)):
@@ -3630,6 +3897,7 @@ def _MakeSignature(app_id=None,
                    dump=None,
                    restore=None):
   """Returns a string that identifies the important options for the database."""
+
   if download:
     result_db_line = 'result_db: %s' % result_db_filename
   else:
@@ -3660,6 +3928,8 @@ def ProcessArguments(arg_dict,
   Returns:
     A dictionary of bulkloader options.
   """
+
+
   application = GetArgument(arg_dict, 'application', die_fn)
   url = GetArgument(arg_dict, 'url', die_fn)
   dump = GetArgument(arg_dict, 'dump', die_fn)
@@ -3699,6 +3969,7 @@ def ProcessArguments(arg_dict,
 
   required = '%s argument required'
 
+
   if config_file is None and not dump and not restore and not create_config:
     errors.append('One of --config_file, --dump, --restore, or --create_config '
                   'is required')
@@ -3725,6 +3996,7 @@ def ProcessArguments(arg_dict,
 
   if not application:
     if url and url is not REQUIRED_OPTION:
+
       (unused_scheme, host_port, unused_url_path,
        unused_query, unused_fragment) = urlparse.urlsplit(url)
       suffix_idx = host_port.find('.appspot.com')
@@ -3735,6 +4007,7 @@ def ProcessArguments(arg_dict,
       else:
         errors.append('application argument required for non appspot.com domains')
 
+
   POSSIBLE_COMMANDS = ('create_config', 'download', 'dump', 'map', 'restore')
   commands = []
   for command in POSSIBLE_COMMANDS:
@@ -3742,6 +4015,8 @@ def ProcessArguments(arg_dict,
       commands.append(command)
   if len(commands) > 1:
     errors.append('%s are mutually exclusive.' % ' and '.join(commands))
+
+
 
 
   if errors:
@@ -3807,12 +4082,15 @@ def _PerformBulkload(arg_dict,
   kind = ParseKind(kind)
 
   if not dump and not restore and not create_config:
+
     check_file(config_file)
 
   if download or dump or create_config:
+
     check_output_file(filename)
   elif not perform_map:
     check_file(filename)
+
 
   throttle_layout = ThrottleLayout(bandwidth_limit, http_limit, rps_limit)
   logger.info('Throttling transfers:')
@@ -3823,6 +4101,7 @@ def _PerformBulkload(arg_dict,
 
   throttle = remote_api_throttle.Throttle(layout=throttle_layout)
 
+
   throttle.Register(threading.currentThread())
   threading.currentThread().exit_flag = False
 
@@ -3831,8 +4110,11 @@ def _PerformBulkload(arg_dict,
   elif restore:
     Loader.RegisterLoader(RestoreLoader(kind, app_id))
   elif create_config:
+
     kind = '__Stat_PropertyType_PropertyName_Kind__'
     arg_dict['kind'] = kind
+
+
     root_dir = os.path.dirname(os.path.abspath(__file__))
     if os.path.basename(root_dir) == 'tools':
       root_dir = os.path.dirname(os.path.dirname(os.path.dirname(root_dir)))
@@ -3857,6 +4139,8 @@ def _PerformBulkload(arg_dict,
                              dump=dump,
                              restore=restore)
 
+
+
   max_queue_size = max(DEFAULT_QUEUE_SIZE, 3 * num_threads + 5)
 
   upload = not (download or dump or restore or perform_map or create_config)
@@ -3874,6 +4158,8 @@ def _PerformBulkload(arg_dict,
     loader = Loader.RegisteredLoader(kind)
     try:
       loader.initialize(filename, loader_opts)
+
+
       workitem_generator_factory = GetCSVGeneratorFactory(
           kind, filename, batch_size, has_header)
 
@@ -3974,13 +4260,16 @@ def SetupLogging(arg_dict):
 
   logger.setLevel(logging.DEBUG)
 
+
   logger.propagate = False
+
 
   file_handler = logging.FileHandler(log_file, 'w')
   file_handler.setLevel(logging.DEBUG)
   file_formatter = logging.Formatter(format)
   file_handler.setFormatter(file_formatter)
   logger.addHandler(file_handler)
+
 
   console = logging.StreamHandler()
   level = logging.INFO
@@ -3997,6 +4286,8 @@ def SetupLogging(arg_dict):
   remote_api_throttle.logger.setLevel(level)
   remote_api_throttle.logger.addHandler(file_handler)
   remote_api_throttle.logger.addHandler(console)
+
+
 
   appengine_rpc.logger.setLevel(logging.WARN)
 
@@ -4025,7 +4316,9 @@ def Run(arg_dict):
 def main(argv):
   """Runs the importer from the command line."""
 
+
   arg_dict = ParseArguments(argv)
+
 
   errors = ['%s argument required' % key
             for (key, value) in arg_dict.iteritems()
