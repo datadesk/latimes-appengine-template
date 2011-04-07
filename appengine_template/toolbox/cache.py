@@ -7,6 +7,8 @@ def get_cache_key(cache_key):
     """
     Returns a cache key with our global namespacing stuff, 
     like the app version id, baked in.
+    
+    Requires that you add CACHE_VERSION to your Django settings.py file.
     """
     # Bake the current version id in the cache key
     return '%s-%s' % (settings.CACHE_VERSION, cache_key)
