@@ -1,3 +1,5 @@
+h1. This library is no longer supported and probably should not be used. To be honest, we had to move off AppEngine after Google "jacked up the price.":http://www.informationweek.com/cloud-computing/platform/google-app-engine-price-hike-stuns-devel/231600672
+
 <pre><code>      _                                _              _____                     _       _       
      /_\  _ __  _ __   ___ _ __   __ _(_)_ __   ___  /__   \___ _ __ ___  _ __ | | __ _| |_ ___ 
     //_\\| '_ \| '_ \ / _ \ '_ \ / _` | | '_ \ / _ \   / /\/ _ \ '_ ` _ \| '_ \| |/ _` | __/ _ \
